@@ -7,6 +7,10 @@ import (
 	"net/url"
 	"strings"
 	"testing"
+
+	"github.com/AkkunYo/kiro4cpa-plugin/internal/hostapi"
+	"github.com/router-for-me/CLIProxyAPI/v8/sdk/pluginabi"
+	"github.com/router-for-me/CLIProxyAPI/v8/sdk/pluginapi"
 )
 
 // The PKCE challenge for the RFC 7636 appendix B verifier.
@@ -126,5 +130,67 @@ func TestSocialExchangeFailureIsReported(t *testing.T) {
 	}
 	if s, _ := getLoginSession(state); s.Completed != nil {
 		t.Fatal("failed exchange completed the session")
+	}
+}
+
+// The official host polls the outer session; Kiro's full callback is submitted
+// on the plugin page so its path and login_option survive the handoff.
+func TestSocialLoginOfficialPanelHandoff(t *testing.T) {
+	for _, path := range []string{"/oauth/callback", "/signin/callback"} {
+		for _, provider := range []string{"google", "github"} {
+			t.Run(path+"/"+provider, func(t *testing.T) {
+				stubHTTP(t, func(hostapi.HTTPRequest) (*hostapi.HTTPResponse, error) {
+					return ok(`{"userInfo":{"email":"fixture@example.test","userId":"fixture-user"}}`)
+				})
+				exchanges := 0
+				var exchange map[string]string
+				server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					exchanges++
+					_ = json.NewDecoder(r.Body).Decode(&exchange)
+					_, _ = w.Write([]byte(`{"accessToken":"fixture-at","refreshToken":"fixture-rt","expiresIn":3600}`))
+				}))
+				defer server.Close()
+				original := socialTokenURL
+				socialTokenURL = server.URL
+				defer func() { socialTokenURL = original }()
+				start := callHandler[pluginapi.AuthLoginStartResponse](t, pluginabi.MethodAuthLoginStart, pluginapi.AuthLoginStartRequest{Provider: "kiro4cpa"})
+				t.Cleanup(func() { loginSessionsMu.Lock(); delete(loginSessions, start.State); loginSessionsMu.Unlock() })
+				if start.URL != connectPageURL(start.State) {
+					t.Fatalf("wrong connect URL %q", start.URL)
+				}
+				_, link := callRoute(t, http.MethodPost, routeSocialStart, map[string]string{"state": start.State}, nil)
+				portal, _ := url.Parse(link["url"].(string))
+				poll := pluginapi.AuthLoginPollRequest{Provider: "kiro4cpa", State: start.State}
+				before := callHandler[pluginapi.AuthLoginPollResponse](t, pluginabi.MethodAuthLoginPoll, poll)
+				if before.Status != pluginapi.AuthLoginStatusPending {
+					t.Fatalf("premature result: %s", before.Status)
+				}
+				callback := socialRedirectURI + path + "?code=fixture-code&state=" + url.QueryEscape(portal.Query().Get("state")) + "&login_option=" + provider
+				status, _ := callRoute(t, http.MethodPost, routeSocialComplete, map[string]string{"state": start.State, "callbackUrl": callback}, nil)
+				if status != http.StatusOK || exchange["redirect_uri"] != socialRedirectURI+path+"?login_option="+provider {
+					t.Fatalf("callback status %d, wrong redirect URI", status)
+				}
+				if pkceChallenge(exchange["code_verifier"]) != portal.Query().Get("code_challenge") {
+					t.Fatal("PKCE verifier mismatch")
+				}
+				first := callHandler[pluginapi.AuthLoginPollResponse](t, pluginabi.MethodAuthLoginPoll, poll)
+				second := callHandler[pluginapi.AuthLoginPollResponse](t, pluginabi.MethodAuthLoginPoll, poll)
+				if first.Status != pluginapi.AuthLoginStatusSuccess || first.Auth.Provider != "kiro4cpa" || first.Auth.FileName != "kiro4cpa-"+provider+"-fixture@example.test.json" || first.Auth.ID != second.Auth.ID {
+					t.Fatal("unstable host credential handoff")
+				}
+				if string(first.Auth.StorageJSON) != string(second.Auth.StorageJSON) {
+					t.Fatal("repeated poll changed credentials")
+				}
+				_, public := callRoute(t, http.MethodGet, routeStatus, nil, url.Values{"state": {start.State}})
+				data, _ := json.Marshal(public)
+				if public["delivered"] != true || strings.Contains(string(data), "fixture-at") || strings.Contains(string(data), "fixture-rt") {
+					t.Fatal("public status leaked tokens or lost delivery state")
+				}
+				status, _ = callRoute(t, http.MethodPost, routeSocialComplete, map[string]string{"state": start.State, "callbackUrl": callback}, nil)
+				if status != http.StatusConflict || exchanges != 1 {
+					t.Fatalf("authorization code was reused: status=%d exchanges=%d", status, exchanges)
+				}
+			})
+		}
 	}
 }

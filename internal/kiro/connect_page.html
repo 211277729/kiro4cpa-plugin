@@ -4,19 +4,22 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta name="referrer" content="no-referrer">
-  <title>Kiro 登录</title>
+  <title data-i18n="Kiro 登录">Kiro 登录</title>
   <style>
     :root {
-      --bg: #f8fafc; --card: #ffffff; --text: #0f172a; --muted: #64748b;
-      --primary: #7c3aed; --primary-hover: #6d28d9; --border: #e2e8f0;
-      --input: #f1f5f9; --ok: #059669; --err: #dc2626; --warn: #b45309;
+      color-scheme: light;
+      --bg: #faf9f5; --card: #f0eee8; --text: #2d2a26; --muted: #6d6760;
+      --primary: #8b8680; --primary-hover: #7f7a74; --border: #e3e1db;
+      --input: #faf9f5; --ok: #059669; --err: #c65746; --warn: #b45309;
     }
-    @media (prefers-color-scheme: dark) {
-      :root {
-        --bg: #0f1117; --card: #1a1d27; --text: #e2e8f0; --muted: #94a3b8;
-        --primary: #8b5cf6; --primary-hover: #7c3aed; --border: #2d3748;
-        --input: #131620; --ok: #10b981; --err: #f87171; --warn: #fbbf24;
-      }
+    :root[data-theme="white"] {
+      --bg: #ffffff; --card: #ffffff; --input: #f6f6f6; --border: #e5e5e5;
+    }
+    :root[data-theme="dark"] {
+      color-scheme: dark;
+      --bg: #151412; --card: #1d1b18; --text: #f6f4f1; --muted: #c9c3bb;
+      --primary-hover: #9a948e; --border: #3a3530;
+      --input: #262320; --ok: #10b981; --err: #f1b0a6; --warn: #fbbf24;
     }
     * { box-sizing: border-box; }
     body {
@@ -27,13 +30,13 @@
     }
     .card {
       width: 100%; max-width: 560px; margin-top: 4vh; padding: 28px;
-      background: var(--card); border: 1px solid var(--border); border-radius: 16px;
+      background: var(--card); border: 1px solid var(--border); border-radius: 12px;
     }
     .header { display: flex; align-items: center; gap: 12px; margin-bottom: 20px; }
     .logo { width: 40px; height: 40px; border-radius: 10px; flex: none; }
     h1 { margin: 0; font-size: 19px; font-weight: 600; }
     .sub { margin: 2px 0 0; font-size: 13px; color: var(--muted); }
-    .methods { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 8px; margin-bottom: 20px; }
+    .methods { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin-bottom: 20px; }
     .method {
       text-align: left; padding: 10px 12px; border: 1px solid var(--border); border-radius: 10px;
       background: transparent; color: var(--text); cursor: pointer; font: inherit;
@@ -42,6 +45,7 @@
     .method span { display: block; font-size: 12px; color: var(--muted); margin-top: 2px; }
     .method[aria-pressed="true"] { border-color: var(--primary); box-shadow: 0 0 0 1px var(--primary) inset; }
     .method:disabled { opacity: .5; cursor: not-allowed; }
+    .method[aria-pressed="true"]:disabled { opacity: 1; }
     .pane { display: none; }
     .pane.active { display: block; }
     .field { margin-bottom: 14px; }
@@ -56,6 +60,8 @@
       width: 100%; padding: 11px; border: none; border-radius: 8px; cursor: pointer;
       background: var(--primary); color: #fff; font: inherit; font-weight: 600; font-size: 14px;
     }
+    :focus-visible { outline: 2px solid var(--primary); outline-offset: 3px; }
+    .btn.secondary { background: transparent; color: var(--text); border: 1px solid var(--border); }
     .btn:hover { background: var(--primary-hover); }
     .btn:disabled { opacity: .6; cursor: not-allowed; }
     .btn.link { display: block; text-align: center; text-decoration: none; margin-top: 10px; }
@@ -72,6 +78,13 @@
     .msg.info { display: block; color: var(--muted); border: 1px solid var(--border); }
     #key-box { display: none; margin-bottom: 18px; padding: 12px; border-radius: 10px; border: 1px solid var(--warn); }
     #key-box p { margin: 0 0 8px; font-size: 12px; color: var(--warn); }
+    @media (max-width: 480px) {
+      body { padding: 16px 12px; }
+      .card { margin-top: 12px; padding: 20px; }
+    }
+    @media (max-width: 360px) {
+      .methods { grid-template-columns: 1fr; }
+    }
     .hidden { display: none !important; }
   </style>
 </head>
@@ -85,51 +98,52 @@
         <path d="M771.24 549.353C738.445 549.353 733.477 510.097 733.477 486.742C733.477 465.623 737.203 448.977 744.41 438.293C750.621 428.852 759.814 424.131 771.24 424.131C782.672 424.131 792.609 428.852 799.564 438.541C807.516 449.474 811.74 466.12 811.74 486.742C811.74 525.998 796.588 549.353 771.492 549.353H771.24Z" fill="#1A1A1A"/>
       </svg>
       <div>
-        <h1>Kiro 登录</h1>
-        <p class="sub">选择登录方式，完成后回到管理面板即可看到新账号。</p>
+        <h1 data-i18n="Kiro 登录">Kiro 登录</h1>
+        <p class="sub" data-i18n="选择登录方式，完成后回到管理面板即可看到新账号。">选择登录方式，完成后回到管理面板即可看到新账号。</p>
       </div>
     </div>
 
     <div id="key-box">
-      <p>没有读到管理面板保存的管理密钥（登录面板时未勾选“记住密码”，或面板不是用当前地址打开的）。请输入管理密钥，它只用于本页请求，不会被保存。</p>
-      <label for="mgmt-key">管理密钥</label>
+      <p data-i18n="没有读到管理面板保存的管理密钥（登录面板时未勾选“记住密码”，或面板不是用当前地址打开的）。请输入管理密钥，它只用于本页请求，不会被保存。">没有读到管理面板保存的管理密钥（登录面板时未勾选“记住密码”，或面板不是用当前地址打开的）。请输入管理密钥，它只用于本页请求，不会被保存。</p>
+      <label for="mgmt-key" data-i18n="管理密钥">管理密钥</label>
       <input type="password" id="mgmt-key" autocomplete="off" placeholder="CPA 管理密钥">
-      <button class="btn actions" id="btn-key-resume">验证密钥并继续</button>
+      <button class="btn actions" id="btn-key-resume" data-i18n="验证密钥并继续">验证密钥并继续</button>
     </div>
 
-    <div class="methods" role="group" aria-label="登录方式">
-      <button class="method" data-pane="builder" aria-pressed="true"><b>Builder ID</b><span>AWS 账号邮箱登录</span></button>
-      <button class="method" data-pane="social" aria-pressed="false"><b>Google / GitHub</b><span>通过 Kiro 登录页</span></button>
-      <button class="method" data-pane="idc" aria-pressed="false"><b>IAM Identity Center</b><span>企业 SSO</span></button>
-      <button class="method" data-pane="import" aria-pressed="false"><b>导入凭据</b><span>Refresh Token / API Key</span></button>
+    <div class="methods" id="login-methods" role="group" aria-label="登录方式">
+      <button class="method" data-pane="builder" aria-pressed="true"><b>Builder ID</b><span data-i18n="AWS 账号邮箱登录">AWS 账号邮箱登录</span></button>
+      <button class="method" data-pane="social" aria-pressed="false"><b>Google / GitHub</b><span data-i18n="通过 Kiro 登录页">通过 Kiro 登录页</span></button>
+      <button class="method" data-pane="idc" aria-pressed="false"><b>IAM Identity Center</b><span data-i18n="企业 SSO">企业 SSO</span></button>
+      <button class="method" data-pane="import" aria-pressed="false"><b data-i18n="导入凭据">导入凭据</b><span>Refresh Token / API Key</span></button>
     </div>
 
     <section class="pane active" id="pane-builder">
-      <p class="note">将打开 AWS 官方页面，输入 Builder ID 邮箱并确认下方授权码。</p>
-      <button class="btn" id="btn-builder">获取授权码</button>
+      <p class="note" data-i18n="将打开 AWS 官方页面，输入 Builder ID 邮箱并确认下方授权码。">将打开 AWS 官方页面，输入 Builder ID 邮箱并确认下方授权码。</p>
+      <button class="btn" id="btn-builder" data-i18n="获取授权码">获取授权码</button>
       <div class="box hidden" id="device-builder">
-        <div class="note">授权码</div>
+        <div class="note" data-i18n="授权码">授权码</div>
         <div class="code" id="code-builder"></div>
-        <a class="btn link" id="link-builder" target="_blank" rel="noopener noreferrer">打开 AWS 授权页</a>
-        <button class="btn actions" id="copy-builder">复制授权码</button>
-        <p class="note">授权完成后本页会自动更新，无需刷新。</p>
+        <a class="btn link" id="link-builder" target="_blank" rel="noopener noreferrer" data-i18n="打开 AWS 授权页">打开 AWS 授权页</a>
+        <button class="btn actions" id="copy-builder" data-i18n="复制授权码">复制授权码</button>
+        <p class="note" data-i18n="授权完成后本页会自动更新，无需刷新。">授权完成后本页会自动更新，无需刷新。</p>
       </div>
     </section>
 
     <section class="pane" id="pane-social">
       <ol class="note">
-        <li>点击下方按钮，在 Kiro 登录页选择 Google 或 GitHub 并完成登录。</li>
-        <li>登录后浏览器会跳到一个打不开的 <code>127.0.0.1:3128</code> 页面，这是正常的。</li>
-        <li>复制浏览器地址栏中的<b>完整地址</b>，粘贴到下面并提交。</li>
+        <li data-i18n="点击下方按钮，在 Kiro 登录页选择 Google 或 GitHub 并完成登录。">点击下方按钮，在 Kiro 登录页选择 Google 或 GitHub 并完成登录。</li>
+        <li data-i18n="登录后浏览器会跳到打不开的 127.0.0.1:3128 页面，这是正常的。">登录后浏览器会跳到打不开的 127.0.0.1:3128 页面，这是正常的。</li>
+        <li data-i18n="复制地址栏中的完整地址，在本页下方提交回调地址，等待保存成功。">复制地址栏中的完整地址，在本页下方提交回调地址，等待保存成功。</li>
       </ol>
-      <button class="btn" id="btn-social-start">生成 Kiro 登录链接</button>
+      <p class="note" id="social-callback-help" data-i18n="Kiro 回调请在本页提交；官方面板的通用回调框暂不支持此流程。">Kiro 回调请在本页提交；官方面板的通用回调框暂不支持此流程。</p>
+      <button class="btn" id="btn-social-start" data-i18n="生成 Kiro 登录链接">生成 Kiro 登录链接</button>
       <div class="box hidden" id="social-paste">
-        <a class="btn link top" id="link-social" target="_blank" rel="noopener noreferrer">前往 Kiro 登录页</a>
+        <a class="btn link top" id="link-social" target="_blank" rel="noopener noreferrer" data-i18n="前往 Kiro 登录页">前往 Kiro 登录页</a>
         <div class="field">
-          <label for="social-callback">回调地址</label>
+          <label for="social-callback" data-i18n="回调地址">回调地址</label>
           <textarea id="social-callback" placeholder="http://127.0.0.1:3128/oauth/callback?code=...&state=...&login_option=google"></textarea>
         </div>
-        <button class="btn" id="btn-social-complete">提交回调地址</button>
+        <button class="btn" id="btn-social-complete" data-i18n="提交回调地址">提交回调地址</button>
       </div>
     </section>
 
@@ -142,37 +156,38 @@
         <label for="idc-region">Region</label>
         <input id="idc-region" value="us-east-1" autocomplete="off">
       </div>
-      <button class="btn" id="btn-idc">获取授权码</button>
+      <button class="btn" id="btn-idc" data-i18n="获取授权码">获取授权码</button>
       <div class="box hidden" id="device-idc">
-        <div class="note">授权码</div>
+        <div class="note" data-i18n="授权码">授权码</div>
         <div class="code" id="code-idc"></div>
-        <a class="btn link" id="link-idc" target="_blank" rel="noopener noreferrer">打开 AWS 授权页</a>
-        <button class="btn actions" id="copy-idc">复制授权码</button>
-        <p class="note">授权完成后本页会自动更新，无需刷新。</p>
+        <a class="btn link" id="link-idc" target="_blank" rel="noopener noreferrer" data-i18n="打开 AWS 授权页">打开 AWS 授权页</a>
+        <button class="btn actions" id="copy-idc" data-i18n="复制授权码">复制授权码</button>
+        <p class="note" data-i18n="授权完成后本页会自动更新，无需刷新。">授权完成后本页会自动更新，无需刷新。</p>
       </div>
     </section>
 
     <section class="pane" id="pane-import">
       <div class="field">
-        <label for="import-method">凭据类型</label>
-        <select id="import-method">
-          <option value="social">Social Refresh Token（Google / GitHub）</option>
-          <option value="idc">IdC Refresh Token（Builder ID / 企业 SSO）</option>
+        <label for="import-method" data-i18n="凭据类型">凭据类型</label>
+        <select id="import-method" aria-describedby="import-help">
+          <option value="social">Social Refresh Token</option>
+          <option value="idc">IdC Refresh Token</option>
           <option value="api_key">Kiro API Key</option>
         </select>
+        <p class="note" id="import-help" data-i18n="Social：Google / GitHub；IdC：Builder ID / 企业 SSO。">Social：Google / GitHub；IdC：Builder ID / 企业 SSO。</p>
       </div>
       <div class="field" id="f-refresh"><label for="import-refresh">Refresh Token</label><textarea id="import-refresh" autocomplete="off"></textarea></div>
       <div class="field hidden" id="f-client-id"><label for="import-client-id">Client ID</label><input id="import-client-id" autocomplete="off"></div>
       <div class="field hidden" id="f-client-secret"><label for="import-client-secret">Client Secret</label><textarea id="import-client-secret" autocomplete="off"></textarea></div>
       <div class="field" id="f-region"><label for="import-region">Region</label><input id="import-region" value="us-east-1" autocomplete="off"></div>
       <div class="field hidden" id="f-api-key"><label for="import-api-key">API Key</label><input type="password" id="import-api-key" autocomplete="off"></div>
-      <button class="btn" id="btn-import">导入并验证</button>
+      <button class="btn" id="btn-import" data-i18n="导入并验证">导入并验证</button>
     </section>
 
     <p class="note" id="countdown" aria-live="off"></p>
     <div class="msg" id="msg" role="status" aria-live="polite"></div>
-    <button class="btn actions hidden" id="btn-resume">重新查询状态</button>
-    <button class="btn actions hidden" id="btn-restart">返回管理面板重新发起登录</button>
+    <button class="btn actions hidden" id="btn-resume" data-i18n="重新查询状态">重新查询状态</button>
+    <a class="btn link secondary" id="btn-restart" href="/management.html#/oauth" target="_blank" rel="noopener noreferrer" data-i18n="返回管理面板">返回管理面板</a>
   </main>
   <script>
   (function () {
@@ -180,17 +195,105 @@
     var API = '/v0/management/plugins/kiro4cpa/login/';
     var state = new URLSearchParams(location.hash.slice(1)).get('state') || '';
     var $ = function (id) { return document.getElementById(id); };
-    // The management panel saves its key in localStorage with a reversible XOR
-    // obfuscation (CPA-Manager-Plus utils/encryption.ts). This page shares the
-    // panel's origin, so it can reuse the key instead of asking for it.
+    // Official Zustand preference keys; never modify the panel's storage.
+    var translations = {
+      "Kiro 登录": ["Kiro sign in", "Kiro 登入"],
+      "选择登录方式，完成后回到管理面板即可看到新账号。": ["Choose a sign-in method, then return to the panel to check the saved account.", "選擇登入方式，完成後回到管理面板確認帳號儲存結果。"],
+      "没有读到管理面板保存的管理密钥（登录面板时未勾选“记住密码”，或面板不是用当前地址打开的）。请输入管理密钥，它只用于本页请求，不会被保存。": ["No remembered key was found for this server. Enter your management key to continue. It is used only for this page and is never saved.", "找不到此伺服器已記住的管理金鑰。請輸入管理金鑰，它僅用於本頁請求，不會儲存。"],
+      "管理密钥": ["Management key", "管理金鑰"],
+      "CPA 管理密钥": ["CPA management key", "CPA 管理金鑰"],
+      "验证密钥并继续": ["Verify key and continue", "驗證金鑰並繼續"],
+      "登录方式": ["Sign-in method", "登入方式"],
+      "AWS 账号邮箱登录": ["AWS account email", "AWS 帳號電子郵件登入"],
+      "通过 Kiro 登录页": ["Via Kiro sign in", "透過 Kiro 登入頁"],
+      "企业 SSO": ["Enterprise SSO", "企業 SSO"],
+      "导入凭据": ["Import credentials", "匯入憑證"],
+      "将打开 AWS 官方页面，输入 Builder ID 邮箱并确认下方授权码。": ["Open the official AWS page, sign in with your Builder ID email and confirm the code below.", "開啟 AWS 官方頁面，輸入 Builder ID 電子郵件並確認下方授權碼。"],
+      "获取授权码": ["Get authorization code", "取得授權碼"],
+      "授权码": ["Authorization code", "授權碼"],
+      "打开 AWS 授权页": ["Open AWS authorization", "開啟 AWS 授權頁"],
+      "复制授权码": ["Copy code", "複製授權碼"],
+      "授权完成后本页会自动更新，无需刷新。": ["This page updates automatically after authorization.", "授權完成後本頁會自動更新，無需重新整理。"],
+      "点击下方按钮，在 Kiro 登录页选择 Google 或 GitHub 并完成登录。": ["Use the button below, then choose Google or GitHub on the Kiro sign-in page.", "點擊下方按鈕，在 Kiro 登入頁選擇 Google 或 GitHub 並完成登入。"],
+      "登录后浏览器会跳到打不开的 127.0.0.1:3128 页面，这是正常的。": ["After sign-in, the browser redirects to an unreachable 127.0.0.1:3128 page. This is expected.", "登入後瀏覽器會跳到無法開啟的 127.0.0.1:3128 頁面，這是正常的。"],
+      "复制地址栏中的完整地址，在本页下方提交回调地址，等待保存成功。": ["Copy the full address and submit it below, then wait for saving to complete.", "複製網址列中的完整網址，在本頁下方提交回呼網址，等待儲存成功。"],
+      "Kiro 回调请在本页提交；官方面板的通用回调框暂不支持此流程。": ["Submit the Kiro callback on this page. The official panel’s generic callback box does not yet support this flow.", "請在本頁提交 Kiro 回呼；官方面板的通用回呼欄位暫不支援此流程。"],
+      "生成 Kiro 登录链接": ["Create Kiro sign-in link", "產生 Kiro 登入連結"],
+      "前往 Kiro 登录页": ["Open Kiro sign in", "前往 Kiro 登入頁"],
+      "回调地址": ["Callback URL", "回呼網址"],
+      "提交回调地址": ["Submit callback URL", "提交回呼網址"],
+      "凭据类型": ["Credential type", "憑證類型"],
+      "Social：Google / GitHub；IdC：Builder ID / 企业 SSO。": ["Social: Google / GitHub. IdC: Builder ID / Enterprise SSO.", "Social：Google / GitHub；IdC：Builder ID / 企業 SSO。"],
+      "导入并验证": ["Import and verify", "匯入並驗證"],
+      "重新查询状态": ["Check status again", "重新查詢狀態"],
+      "返回管理面板": ["Return to management panel", "返回管理面板"],
+      "登录失败": ["Sign-in failed", "登入失敗"],
+      "。请回到管理面板重新发起 Kiro 登录。": [". Return to the panel to start a new Kiro sign-in session.", "。請回到管理面板重新發起 Kiro 登入。"],
+      "授权剩余时间：{minutes} 分 {seconds} 秒": ["Time remaining: {minutes}m {seconds}s", "授權剩餘時間：{minutes} 分 {seconds} 秒"],
+      "授权已超时": ["Authorization expired", "授權已逾時"],
+      "请输入管理密钥，然后点击“验证密钥并继续”": ["Enter your management key, then select “Verify key and continue”.", "請輸入管理金鑰，然後點擊「驗證金鑰並繼續」。"],
+      "请输入管理密钥，然后点击“验证密钥并继续”。": ["Enter your management key, then select “Verify key and continue”.", "請輸入管理金鑰，然後點擊「驗證金鑰並繼續」。"],
+      "管理密钥无效，请重新输入后验证": ["Invalid management key. Enter it again and verify.", "管理金鑰無效，請重新輸入後驗證"],
+      "管理接口拒绝访问，请检查密钥或等待服务端解除访问限制": ["Access denied. Check the key or wait for the server to lift the access restriction.", "管理介面拒絕存取，請檢查金鑰或等待伺服器解除存取限制"],
+      "服务端返回格式异常，请重新查询状态": ["Unexpected server response. Check status again.", "伺服器回應格式異常，請重新查詢狀態"],
+      "请求失败（HTTP {status}）": ["Request failed (HTTP {status})", "請求失敗（HTTP {status}）"],
+      "网络请求失败，请重试": ["Network request failed. Please retry.", "網路請求失敗，請重試"],
+      "凭据验证成功。": ["Credentials verified. ", "憑證驗證成功。"],
+      "请在 AWS 页面完成授权，本页正在等待结果…": ["Complete authorization on the AWS page. Waiting for the result…", "請在 AWS 頁面完成授權，本頁正在等待結果…"],
+      "请完成 Kiro 登录，再将回调地址粘贴到下方。": ["Complete Kiro sign-in, then paste the callback URL below.", "請完成 Kiro 登入，再將回呼網址貼到下方。"],
+      "请先输入管理密钥": ["Enter a management key first.", "請先輸入管理金鑰"],
+      "正在处理，请稍候…": ["Processing, please wait…", "正在處理，請稍候…"],
+      "授权码已复制": ["Authorization code copied.", "授權碼已複製"],
+      "无法自动复制，请选中上方授权码手动复制": ["Copy failed. Select the code above and copy it manually.", "無法自動複製，請選取上方授權碼手動複製"],
+      "请先粘贴回调地址": ["Paste the callback URL first.", "請先貼上回呼網址"],
+      "缺少登录会话": ["Missing sign-in session", "缺少登入工作階段"],
+      "凭据已接收，正在等待 CPA 保存…": ["Credentials received. Waiting for CPA to save them…", "已收到憑證，正在等待 CPA 儲存…"],
+      "凭据已保存，可返回管理面板查看账号。": ["Credentials saved. Return to the panel to view the account.", "憑證已儲存，可返回管理面板查看帳號。"],
+      "凭据保存失败": ["Failed to save credentials", "憑證儲存失敗"]
+    };
+    var language = 'zh-CN';
+    var media = window.matchMedia ? window.matchMedia('(prefers-color-scheme: dark)') : null;
+    function preference(key, field) {
+      try {
+        var raw = localStorage.getItem(key);
+        if (!raw) return '';
+        var data;
+        try { data = JSON.parse(raw); } catch (e) { return raw; }
+        return (data && data.state && data.state[field]) || (data && data[field]) || (typeof data === 'string' ? data : '');
+      } catch (e) { return ''; }
+    }
+    function t(message, values) {
+      var entry = translations[message];
+      var text = !entry || language === 'zh-CN' ? message : entry[language === 'zh-TW' ? 1 : 0];
+      return text.replace(/\{(\w+)\}/g, function (match, key) { return values && key in values ? String(values[key]) : match; });
+    }
+    function applyPreferences() {
+      var theme = preference('cli-proxy-theme', 'theme');
+      if (['light', 'white', 'dark'].indexOf(theme) < 0) theme = media && media.matches ? 'dark' : 'white';
+      if (theme === 'light') document.documentElement.removeAttribute('data-theme');
+      else document.documentElement.setAttribute('data-theme', theme);
+      var selected = preference('cli-proxy-language', 'language');
+      if (['zh-CN', 'zh-TW', 'en', 'ru', 'vi', 'ko', 'tr'].indexOf(selected) < 0) selected = (navigator.languages && navigator.languages[0]) || navigator.language || 'zh-CN';
+      var lower = selected.toLowerCase();
+      // The standalone page translates Chinese and English; other panel locales use English.
+      language = /^zh-(tw|hk|mo|hant)/.test(lower) ? 'zh-TW' : /^zh/.test(lower) ? 'zh-CN' : 'en';
+      document.documentElement.lang = language;
+      document.querySelectorAll('[data-i18n]').forEach(function (el) { el.textContent = t(el.dataset.i18n); });
+      document.title = t('Kiro 登录');
+      $('mgmt-key').placeholder = t('CPA 管理密钥');
+      $('login-methods').setAttribute('aria-label', t('登录方式'));
+    }
+    applyPreferences();
+    if (media) media.addEventListener('change', applyPreferences);
+    window.addEventListener('storage', function (event) {
+      if (event.key === null || event.key === 'cli-proxy-theme' || event.key === 'cli-proxy-language') applyPreferences();
+    });
+    // Official panel v1.27.3 secure storage. Auth data before v2 is retired.
     var SALT = 'cli-proxy-api-webui::secure-storage';
     function deobfuscate(raw) {
-      var key;
-      if (raw.indexOf('enc::v2::') === 0) key = SALT + '|v2|' + location.host;
-      else if (raw.indexOf('enc::v1::') === 0) key = SALT + '|' + location.host + '|' + navigator.userAgent;
-      else return raw;
+      if (raw.indexOf('enc::v2::') !== 0) return '';
       var bin = atob(raw.slice(9));
-      var kb = new TextEncoder().encode(key);
+      var kb = new TextEncoder().encode(SALT + '|' + location.host);
       var out = new Uint8Array(bin.length);
       for (var i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i) ^ kb[i % kb.length];
       return new TextDecoder().decode(out);
@@ -204,21 +307,15 @@
         var raw = localStorage.getItem('cli-proxy-auth');
         if (raw) {
           var data = JSON.parse(deobfuscate(raw));
-          var s = (data && data.state) || data || {};
-          if (typeof s.managementKey === 'string' && s.managementKey && sameServer(s.apiBase)) return s.managementKey;
-        }
-        var legacy = localStorage.getItem('managementKey');
-        if (legacy) {
-          var v = deobfuscate(legacy);
-          try { v = JSON.parse(v); } catch (e) {}
-          if (typeof v === 'string' && v && sameServer(localStorage.getItem('apiBase'))) return v;
+          var s = (data && data.state) || {};
+          if (s.rememberPassword === true && typeof s.managementKey === 'string' && s.managementKey && sameServer(s.apiBase)) return s.managementKey;
         }
       } catch (e) {}
       return '';
     }
     var autoKey = savedKey();
     var polling = null, countdown = null, inFlight = false, finished = false;
-    var authBlocked = false, failures = 0, activeMethod = '';
+    var authBlocked = false, credentialReady = false, failures = 0, activeMethod = '';
     if (!autoKey) $('key-box').style.display = 'block';
     function currentKey() { return autoKey || $('mgmt-key').value.trim(); }
     function show(kind, text) { $('msg').className = 'msg ' + kind; $('msg').textContent = text; }
@@ -238,7 +335,7 @@
       document.querySelectorAll('.pane button').forEach(function (b) { b.disabled = true; });
       $('btn-resume').classList.add('hidden');
       $('btn-restart').classList.remove('hidden');
-      show('err', (message || '登录失败') + '。请回到管理面板重新发起 Kiro 登录。');
+      show('err', (message || t("登录失败")) + t("。请回到管理面板重新发起 Kiro 登录。"));
     }
     function showCountdown(until) {
       stopCountdown();
@@ -246,51 +343,68 @@
       if (!Number.isFinite(expiry)) return;
       function update() {
         var seconds = Math.max(0, Math.ceil((expiry - Date.now()) / 1000));
-        $('countdown').textContent = '授权剩余时间：' + Math.floor(seconds / 60) + ' 分 ' + (seconds % 60) + ' 秒';
-        if (!seconds && !finished) fail('授权已超时');
+        $('countdown').textContent = t("授权剩余时间：{minutes} 分 {seconds} 秒", {minutes: Math.floor(seconds / 60), seconds: seconds % 60});
+        if (!seconds && !finished) fail(t("授权已超时"));
       }
       update();
       if (!finished) countdown = setInterval(update, 1000);
     }
-    async function api(method, path, body) {
+    function api(method, path, body) { return managementRequest(method, API + path, body); }
+    async function managementRequest(method, path, body) {
       var key = currentKey();
       if (authBlocked || !key) {
         $('key-box').style.display = 'block';
-        var missing = new Error('请输入管理密钥，然后点击“验证密钥并继续”'); missing.auth = true; throw missing;
+        var missing = new Error(t("请输入管理密钥，然后点击“验证密钥并继续”")); missing.auth = true; throw missing;
       }
       var opts = {method: method, headers: {'Authorization': 'Bearer ' + key}, cache: 'no-store', credentials: 'omit'};
       if (typeof AbortSignal !== 'undefined' && AbortSignal.timeout) opts.signal = AbortSignal.timeout(35000);
       if (body) { opts.headers['Content-Type'] = 'application/json'; opts.body = JSON.stringify(Object.assign({state: state}, body)); }
-      var res = await fetch(API + path, opts);
+      var res = await fetch(path, opts);
       if (res.status === 401 || res.status === 403) {
         autoKey = ''; $('mgmt-key').value = ''; authBlocked = true; stopPolling();
         $('key-box').style.display = 'block';
-        var denied = new Error(res.status === 401 ? '管理密钥无效，请重新输入后验证' : '管理接口拒绝访问，请检查密钥或等待服务端解除访问限制');
+        var denied = new Error(res.status === 401 ? t("管理密钥无效，请重新输入后验证") : t("管理接口拒绝访问，请检查密钥或等待服务端解除访问限制"));
         denied.auth = true; throw denied;
       }
       var data = {};
-      try { data = await res.json(); } catch (e) { throw new Error('服务端返回格式异常，请重新查询状态'); }
-      if (!res.ok) { var error = new Error(data.error || ('请求失败（HTTP ' + res.status + '）')); error.expired = res.status === 404; throw error; }
+      try { data = await res.json(); } catch (e) { throw new Error(t("服务端返回格式异常，请重新查询状态")); }
+      if (!res.ok) { var error = new Error(data.error || t("请求失败（HTTP {status}）", {status: res.status})); error.expired = res.status === 404; throw error; }
       return data;
     }
     function reportError(e) {
       if (e.expired) { fail(e.message); return; }
-      show('err', e.message || '网络请求失败，请重试');
+      show('err', e.message || t("网络请求失败，请重试"));
       if (!e.auth) { $('btn-resume').classList.remove('hidden'); $('btn-restart').classList.remove('hidden'); }
     }
     function done(data) {
       finished = true; stopPolling(); stopCountdown(); lockMethods(true);
       document.querySelectorAll('.pane button').forEach(function (b) { b.disabled = true; });
       $('btn-resume').classList.add('hidden');
+      $('btn-restart').classList.remove('hidden');
       $('countdown').textContent = '';
-      var message = data.delivered ? '凭据已交给管理面板，请在面板确认保存结果。' : '凭据已接收，请保持管理面板打开，等待面板保存。';
-      if (data.validation === 'valid') message = '凭据验证成功。' + message;
+      var message = t("凭据已保存，可返回管理面板查看账号。");
+      if (data.validation === 'valid') message = t("凭据验证成功。") + message;
       if (data.warning) message = data.warning + '。' + message;
       show(data.warning ? 'warn' : 'ok', message);
       $('social-callback').value = ''; $('import-refresh').value = ''; $('import-client-secret').value = ''; $('import-api-key').value = '';
     }
-    function restore(data) {
-      if (data.status === 'success') { done(data); return; }
+    async function restore(data) {
+      if (data.status === 'success') {
+        credentialReady = true;
+        // Plugin completion means credentials are ready, not that CPA saved them.
+        // Use the same host status endpoint as the official OAuth flow; CPA owns
+        // persistence and coalesces concurrent polls from this tab and the panel.
+        stopCountdown(); lockMethods(true);
+        document.querySelectorAll('.pane button').forEach(function (b) { b.disabled = true; });
+        $('social-callback').value = ''; $('import-refresh').value = ''; $('import-client-secret').value = ''; $('import-api-key').value = '';
+        $('countdown').textContent = '';
+        show('info', t('凭据已接收，正在等待 CPA 保存…'));
+        var host = await managementRequest('GET', '/v8/management/oauth/status?state=' + encodeURIComponent(state));
+        if (host.status === 'ok') done(data);
+        else if (host.status === 'error') fail(host.error || t('凭据保存失败'));
+        else if (host.status !== 'wait') throw new Error(t('服务端返回格式异常，请重新查询状态'));
+        return;
+      }
       if (data.status === 'error') { fail(data.error); return; }
       activeMethod = data.method || '';
       var pane = activeMethod.indexOf('device-') === 0 ? activeMethod.slice(7) : activeMethod.indexOf('import-') === 0 ? 'import' : activeMethod;
@@ -304,18 +418,18 @@
           $('device-' + pane).classList.remove('hidden');
           $('btn-' + pane).disabled = true;
           if (pane === 'idc') { $('idc-start-url').value = data.startUrl || ''; $('idc-region').value = data.region || 'us-east-1'; }
-          show('info', '请在 AWS 页面完成授权，本页正在等待结果…');
+          show('info', t("请在 AWS 页面完成授权，本页正在等待结果…"));
         }
       } else if (pane === 'social') {
         var social = safeHref(data.url);
         if (social) { $('link-social').href = social; $('social-paste').classList.remove('hidden'); $('btn-social-start').disabled = true; }
-        show('info', '请完成 Kiro 登录，再将回调地址粘贴到下方。');
+        show('info', t("请完成 Kiro 登录，再将回调地址粘贴到下方。"));
       }
       showCountdown(data.deviceExpiresAt || data.expiresAt);
     }
     async function refreshStatus() {
       var data = await api('GET', 'status?state=' + encodeURIComponent(state));
-      restore(data); return data;
+      await restore(data); return data;
     }
     function startPolling() {
       if (polling !== null || finished || authBlocked) return;
@@ -341,22 +455,18 @@
       finally { inFlight = false; }
     }
     $('btn-key-resume').addEventListener('click', async function () {
-      if (!currentKey()) { show('err', '请先输入管理密钥'); return; }
+      if (!currentKey()) { show('err', t("请先输入管理密钥")); return; }
       authBlocked = false;
       await resume();
     });
     $('btn-resume').addEventListener('click', resume);
-    $('btn-restart').addEventListener('click', function () {
-      show('info', '请在管理面板的“登录授权”页面重新点击 Kiro 登录，打开新的授权页。');
-      try { if (window.opener && !window.opener.closed) window.opener.focus(); } catch (e) {}
-    });
     document.querySelectorAll('.method').forEach(function (b) { b.addEventListener('click', function () { selectPane(b.dataset.pane); }); });
     async function action(button, path, body) {
-      if (inFlight || finished || authBlocked) return;
+      if (inFlight || finished || authBlocked || credentialReady) return;
       button.disabled = true; stopPolling(); inFlight = true;
-      show('info', '正在处理，请稍候…');
-      try { var result = await api('POST', path, body); if (result.status) restore(result); else await refreshStatus(); failures = 0; startPolling(); }
-      catch (e) { reportError(e); if (!finished) button.disabled = false; }
+      show('info', t("正在处理，请稍候…"));
+      try { var result = await api('POST', path, body); if (result.status) await restore(result); else await refreshStatus(); failures = 0; startPolling(); }
+      catch (e) { reportError(e); if (!finished && !credentialReady) button.disabled = false; }
       finally { inFlight = false; }
     }
     ['builder', 'idc'].forEach(function (kind) {
@@ -366,14 +476,14 @@
         action(this, 'device', body);
       });
       $('copy-' + kind).addEventListener('click', async function () {
-        try { await navigator.clipboard.writeText($('code-' + kind).textContent); show('info', '授权码已复制'); }
-        catch (e) { show('info', '无法自动复制，请选中上方授权码手动复制'); }
+        try { await navigator.clipboard.writeText($('code-' + kind).textContent); show('info', t("授权码已复制")); }
+        catch (e) { show('info', t("无法自动复制，请选中上方授权码手动复制")); }
       });
     });
     $('btn-social-start').addEventListener('click', function () { action(this, 'social/start', {}); });
     $('btn-social-complete').addEventListener('click', function () {
       var callbackUrl = $('social-callback').value.trim();
-      if (!callbackUrl) { show('err', '请先粘贴回调地址'); return; }
+      if (!callbackUrl) { show('err', t("请先粘贴回调地址")); return; }
       action(this, 'social/complete', {callbackUrl: callbackUrl});
     });
     function syncImportFields() {
@@ -391,9 +501,9 @@
       }
       action(this, 'import', body);
     });
-    if (!state) fail('缺少登录会话');
+    if (!state) fail(t("缺少登录会话"));
     else if (currentKey()) resume();
-    else show('info', '请输入管理密钥，然后点击“验证密钥并继续”。');
+    else show('info', t("请输入管理密钥，然后点击“验证密钥并继续”。"));
   })();
   </script>
 </body>

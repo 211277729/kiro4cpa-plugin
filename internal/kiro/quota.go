@@ -93,14 +93,7 @@ func handleQuotaFetch(request []byte) ([]byte, error) {
 	if len(limits.UsageBreakdownList) == 0 {
 		return wire.ErrorStatus("quota_unavailable", "Kiro 未返回用量数据，请稍后重试", http.StatusBadGateway, true), nil
 	}
-	response := quotaResponse(limits)
-	queriedAt := time.Now().UTC().Format("2006-01-02 15:04:05 UTC")
-	for i := range response.Groups {
-		for j := range response.Groups[i].Buckets {
-			response.Groups[i].Buckets[j].Description += "；查询于 " + queriedAt
-		}
-	}
-	return wire.OK(response), nil
+	return wire.OK(quotaResponse(limits)), nil
 }
 
 // fetchUsageLimits tries each region, with and without the profile ARN, and
@@ -188,29 +181,35 @@ func quotaResponse(l usageLimits) pluginapi.QuotaFetchResponse {
 		name := firstNonEmpty(it.DisplayName, it.ResourceType, "Credit")
 		key := strings.ToLower(firstNonEmpty(it.ResourceType, "credit"))
 		used, limit := it.Used, it.Limit
-		buckets := []pluginapi.QuotaBucket{quotaBucket("monthly", it.Used, it.Limit, it.NextDateReset)}
+		buckets := []pluginapi.QuotaBucket{quotaBucket("monthly", "月度", it.Used, it.Limit, it.NextDateReset)}
 		if t := it.FreeTrialInfo; t != nil && t.Status == quotaActive && t.Limit > 0 {
 			used, limit = used+t.Used, limit+t.Limit
-			buckets = append(buckets, quotaBucket("free_trial", t.Used, t.Limit, t.Expiry))
+			buckets = append(buckets, quotaBucket("free_trial", "免费试用", t.Used, t.Limit, t.Expiry))
 		}
 		for _, b := range it.Bonuses {
 			if b.Status == quotaActive && b.Limit > 0 {
 				used, limit = used+b.Used, limit+b.Limit
-				buckets = append(buckets, quotaBucket(firstNonEmpty(b.DisplayName, "bonus"), b.Used, b.Limit, b.ExpiresAt))
+				label := "赠送"
+				if b.DisplayName != "" {
+					label += "（" + b.DisplayName + "）"
+				}
+				buckets = append(buckets, quotaBucket(firstNonEmpty(b.DisplayName, "bonus"), label, b.Used, b.Limit, b.ExpiresAt))
 			}
 		}
 		// The summary is the total usable credit, as kiro.rs reports it.
 		out.Summary = append(out.Summary,
-			pluginapi.QuotaMetric{Key: key + "_used", Label: name + " 已用", Value: used, Unit: name},
-			pluginapi.QuotaMetric{Key: key + "_limit", Label: name + " 上限", Value: limit, Unit: name},
+			pluginapi.QuotaMetric{Key: key + "_used", Label: "已用", Value: used, Unit: name},
+			pluginapi.QuotaMetric{Key: key + "_limit", Label: "上限", Value: limit, Unit: name},
 		)
 		out.Groups = append(out.Groups, pluginapi.QuotaGroup{DisplayName: name, Buckets: buckets})
 	}
 	return out
 }
 
-func quotaBucket(window string, used, limit, resetUnix float64) pluginapi.QuotaBucket {
-	b := pluginapi.QuotaBucket{Window: window, Description: fmt.Sprintf("%s / %s", trimFloat(used), trimFloat(limit))}
+func quotaBucket(window, label string, used, limit, resetUnix float64) pluginapi.QuotaBucket {
+	// The official panel uses Description as the row label. CPA's SDK drops
+	// unknown displayName fields, so keep the category and amounts concise here.
+	b := pluginapi.QuotaBucket{Window: window, Description: fmt.Sprintf("%s · %s / %s", label, trimFloat(used), trimFloat(limit))}
 	if limit > 0 {
 		b.RemainingFraction = max(0, min(1, 1-used/limit))
 		if used >= limit {
