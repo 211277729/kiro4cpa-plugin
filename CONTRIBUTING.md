@@ -3,6 +3,7 @@
 ## Requirements
 
 - Go 1.26.10 or newer (see `toolchain` in `go.mod`)
+- Node.js 22 or newer for login-page regression tests
 - A C compiler: cgo is required, the plugin is built with `-buildmode=c-shared`
 
 ## Build
@@ -29,10 +30,12 @@ A release artifact must be named `kiro4cpa-v<version>.<so|dylib|dll>`. A bare
 gofmt -l .                        # must print nothing
 go vet ./...
 go test ./... -race
-go test ./internal/... -cover     # internal/kiro stays above 85%
+go test -race ./... -coverprofile=/tmp/kiro-coverage.out
+python3 scripts/check_coverage.py /tmp/kiro-coverage.out
+node --test scripts/connect_page.test.cjs
 ```
 
-CI runs the tests on Linux, macOS and Windows for every push and pull request.
+CI runs the tests with the race detector on Linux, macOS and Windows for every push and pull request. The Linux job enforces the 85% Kiro coverage floor. Login-page recovery tests use Node.js without third-party packages.
 The release workflow runs them again before building, and reads the stamped
 version back from every binary.
 

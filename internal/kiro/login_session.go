@@ -16,22 +16,27 @@ type LoginSession struct {
 	Method string
 
 	// Device flow (Builder ID / IdC).
-	DeviceCode   string
-	UserCode     string
-	VerifyURL    string
-	ClientID     string
-	ClientSecret string
-	Region       string
-	StartURL     string
-	Polling      bool
+	DeviceCode      string
+	UserCode        string
+	VerifyURL       string
+	ClientID        string
+	ClientSecret    string
+	Region          string
+	StartURL        string
+	Polling         bool
+	Busy            bool
+	DeviceExpiresAt time.Time
 
 	// Social (Google / GitHub) PKCE flow.
 	CodeVerifier string
 	SocialState  string
 
-	Completed *Credential
-	Message   string
-	Error     string
+	Completed  *Credential
+	Message    string
+	Error      string
+	Validation string
+	Warning    string
+	Delivered  bool
 }
 
 var (
@@ -77,6 +82,7 @@ func completeLoginSession(state string, cred *Credential, message string) bool {
 		s.Message = message
 		s.Error = ""
 		s.Polling = false
+		s.Busy = false
 		s.CodeVerifier = ""
 	})
 }
@@ -85,6 +91,7 @@ func failLoginSession(state string, errMessage string) bool {
 	return updateLoginSession(state, func(s *LoginSession) {
 		s.Error = errMessage
 		s.Polling = false
+		s.Busy = false
 	})
 }
 

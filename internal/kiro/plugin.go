@@ -375,16 +375,22 @@ func handleLoginPoll(request []byte) ([]byte, error) {
 
 func buildLoginSuccessResponse(cred Credential, state string) pluginapi.AuthLoginPollResponse {
 	now := time.Now()
-	cred = resolveAccountIdentity(cred.normalized(), config.Get(), now)
+	cred = cred.normalized()
+	session, _ := getLoginSession(state)
+	// A failed import validation must not silently repeat a one-time refresh.
+	if session == nil || (session.Validation != "invalid" && session.Validation != "unverified") {
+		cred = resolveAccountIdentity(cred, config.Get(), now)
+	}
 	// A repeated poll must reuse this identity: a rotated refresh token would
 	// fail a second lookup and fall back to a different file name.
 	updateLoginSession(state, func(s *LoginSession) {
 		if s.Completed != nil {
 			resolved := cred
 			s.Completed = &resolved
+			s.Delivered = true
 		}
 	})
-	raw, err := json.Marshal(cred)
+	raw, err := json.Marshal(cred) // #nosec G117 -- AuthLoginPoll returns credentials only to the trusted CPA host for persistence.
 	if err != nil {
 		return pluginapi.AuthLoginPollResponse{
 			Status:  pluginapi.AuthLoginStatusError,

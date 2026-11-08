@@ -94,13 +94,19 @@ func handleManagement(raw []byte) ([]byte, error) {
 func claimSession(state, method string) (*LoginSession, error) {
 	var claimed *LoginSession
 	var conflict bool
+	var busy bool
 	ok := updateLoginSession(state, func(s *LoginSession) {
 		if s.Completed != nil || (s.Method != "" && s.Method != method) {
 			conflict = true
 			return
 		}
+		if s.Busy || s.Polling {
+			busy = true
+			return
+		}
 		s.Method = method
 		s.Error = ""
+		s.Busy = true
 		snapshot := *s
 		claimed = &snapshot
 	})
@@ -109,8 +115,14 @@ func claimSession(state, method string) (*LoginSession, error) {
 		return nil, errSessionNotFound
 	case conflict:
 		return nil, errSessionUsed
+	case busy:
+		return nil, errors.New("授权请求正在处理中，请等待结果")
 	}
 	return claimed, nil
+}
+
+func releaseSession(state string) {
+	updateLoginSession(state, func(s *LoginSession) { s.Busy = false })
 }
 
 var (
@@ -167,6 +179,7 @@ func handleAPIDevice(req pluginapi.ManagementRequest) ([]byte, error) {
 	if _, err := claimSession(body.State, "device-"+body.Kind); err != nil {
 		return sessionError(err)
 	}
+	defer releaseSession(body.State)
 
 	oidc := newSSOOIDCClientFn()
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
@@ -196,6 +209,14 @@ func handleAPIDevice(req pluginapi.ManagementRequest) ([]byte, error) {
 		s.Region = region
 		s.StartURL = startURL
 		s.Polling = true
+		expiresIn := authResp.ExpiresIn
+		if expiresIn <= 0 {
+			expiresIn = 600
+		}
+		s.DeviceExpiresAt = time.Now().Add(time.Duration(expiresIn) * time.Second)
+		if s.DeviceExpiresAt.After(s.ExpiresAt) {
+			s.DeviceExpiresAt = s.ExpiresAt
+		}
 	})
 	go pollDeviceToken(body.State, oidc, deviceGrant{
 		clientID: regResp.ClientID, clientSecret: regResp.ClientSecret, deviceCode: authResp.DeviceCode,
@@ -294,8 +315,17 @@ func handleAPISocialStart(req pluginapi.ManagementRequest) ([]byte, error) {
 	if err := decodeBody(req, &body); err != nil {
 		return jsonResponse(http.StatusBadRequest, map[string]string{"error": err.Error()})
 	}
-	if _, err := claimSession(body.State, "social"); err != nil {
+	session, err := claimSession(body.State, "social")
+	if err != nil {
 		return sessionError(err)
+	}
+	defer releaseSession(body.State)
+	// Reloads or a lost response must not invalidate an already-open PKCE link.
+	if session.CodeVerifier != "" && session.SocialState != "" {
+		return jsonResponse(http.StatusOK, map[string]string{
+			"url":         socialPortalURL(session.SocialState, pkceChallenge(session.CodeVerifier)),
+			"redirectUri": socialRedirectURI,
+		})
 	}
 	verifier, err1 := randomURLToken(32)
 	socialState, err2 := randomURLToken(24)
@@ -326,6 +356,7 @@ func handleAPISocialComplete(req pluginapi.ManagementRequest) ([]byte, error) {
 	if err != nil {
 		return sessionError(err)
 	}
+	defer releaseSession(body.State)
 	if session.CodeVerifier == "" {
 		return jsonResponse(http.StatusConflict, map[string]string{"error": "请先点击“打开 Kiro 登录页”"})
 	}
@@ -382,8 +413,25 @@ func handleAPIImport(req pluginapi.ManagementRequest) ([]byte, error) {
 	if _, err := claimSession(body.State, "import-"+cred.AuthMethod); err != nil {
 		return sessionError(err)
 	}
+	defer releaseSession(body.State)
+	validation, warning := "valid", ""
+	if cred.AuthMethod == AuthMethodAPIKey {
+		_, err = fetchUsageLimits(cred, config.Get(), "")
+	} else {
+		cred, err = refreshCredential(cred, config.Get(), "", time.Now())
+	}
+	if err != nil {
+		validation, warning = "unverified", "暂时无法验证凭据，请在管理面板检查账号状态"
+		var up *UpstreamError
+		if errors.Is(err, ErrInvalidGrant) || (errors.As(err, &up) && up.Kind == ErrTokenInvalid) {
+			validation, warning = "invalid", "凭据已失效，请重新授权或导入有效凭据"
+		}
+	}
+	updateLoginSession(body.State, func(s *LoginSession) {
+		s.Validation, s.Warning = validation, warning
+	})
 	completeLoginSession(body.State, &cred, "Kiro 凭据已导入")
-	return jsonResponse(http.StatusOK, map[string]bool{"ok": true})
+	return handleAPIStatus(pluginapi.ManagementRequest{Query: url.Values{"state": {body.State}}})
 }
 
 func importedCredential(body importRequest) (Credential, error) {
@@ -419,13 +467,28 @@ func handleAPIStatus(req pluginapi.ManagementRequest) ([]byte, error) {
 	if !ok {
 		return jsonResponse(http.StatusNotFound, map[string]string{"status": "error", "error": errSessionNotFound.Error()})
 	}
+	data := map[string]any{
+		"status": "pending", "method": session.Method, "expiresAt": session.ExpiresAt,
+		"busy": session.Busy || session.Polling, "validation": session.Validation,
+		"warning": session.Warning, "delivered": session.Delivered,
+	}
+	// Only public authorization details are exposed, never the device secret,
+	// code verifier, callback code or tokens.
+	if session.VerifyURL != "" {
+		data["verificationUri"], data["userCode"] = session.VerifyURL, session.UserCode
+		data["deviceExpiresAt"] = session.DeviceExpiresAt
+		data["startUrl"], data["region"] = session.StartURL, session.Region
+	}
+	if session.SocialState != "" && session.CodeVerifier != "" {
+		data["url"] = socialPortalURL(session.SocialState, pkceChallenge(session.CodeVerifier))
+	}
 	switch {
 	case session.Completed != nil:
-		return jsonResponse(http.StatusOK, map[string]string{"status": "success", "message": session.Message})
+		data["status"], data["message"] = "success", session.Message
 	case session.Error != "":
-		return jsonResponse(http.StatusOK, map[string]string{"status": "error", "error": session.Error})
+		data["status"], data["error"] = "error", session.Error
 	}
-	return jsonResponse(http.StatusOK, map[string]string{"status": "pending", "method": session.Method})
+	return jsonResponse(http.StatusOK, data)
 }
 
 func jsonResponse(statusCode int, data any) ([]byte, error) {

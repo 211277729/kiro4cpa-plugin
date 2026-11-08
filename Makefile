@@ -8,7 +8,8 @@ tidy:
 	go mod tidy
 
 test:
-	go test -v ./...
+	go test -race -v ./...
+	node --test scripts/connect_page.test.cjs
 
 build-darwin:
 	CGO_ENABLED=1 go build -trimpath -buildmode=c-shared -o bin/darwin/arm64/$(PLUGIN_NAME).dylib .

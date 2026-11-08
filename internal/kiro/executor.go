@@ -64,9 +64,13 @@ func handleExecute(request []byte) ([]byte, error) {
 	var dec Decoder
 	for _, f := range dec.Feed(resp.Body) {
 		ev, errEv := DecodeEvent(f)
-		if errEv == nil {
-			collector.add(ev)
+		if errEv != nil {
+			return wire.ErrorStatus("upstream_stream_error", errEv.Error(), http.StatusBadGateway, true), nil
 		}
+		collector.add(ev)
+	}
+	if err := dec.Finish(); err != nil {
+		return wire.ErrorStatus("upstream_stream_error", err.Error(), http.StatusBadGateway, true), nil
 	}
 	// Any in-band error means the answer is incomplete; partial content must not
 	// be returned as a finished message.
@@ -107,22 +111,37 @@ func (r executorRPC) refreshTarget() refreshTarget {
 // single-account setup would be unusable until the next scheduled refresh.
 // Concurrent rejections of one credential share a single refresh.
 func withRefresh[T any](target refreshTarget, cred Credential, send func(Credential) (T, error)) (T, error) {
+	// A failed disk write can leave CPA holding either the old or the refreshed
+	// credential. Repair either snapshot even when its access token still works.
+	if hasPendingRefreshSave(target.authID, cred) {
+		var err error
+		cred, err = refreshForRequest(target, cred, true)
+		if err != nil {
+			var zero T
+			return zero, err
+		}
+	}
 	resp, err := send(cred)
 	var up *UpstreamError
 	if !errors.As(err, &up) || up.Kind != ErrTokenInvalid || cred.AuthMethod == AuthMethodAPIKey {
 		return resp, err
 	}
-	refreshed, errRefresh := sharedRefresh(target.authID, cred, func(c Credential) (Credential, error) {
-		fresh, errFresh := refreshCredential(c, config.Get(), target.callbackID, time.Now())
-		if errFresh == nil {
-			persistCredential(target, fresh)
-		}
-		return fresh, errFresh
-	})
+	refreshed, errRefresh := refreshForRequest(target, cred, false)
 	if errRefresh != nil {
-		return resp, err
+		if errors.Is(errRefresh, ErrInvalidGrant) {
+			return resp, &UpstreamError{Status: http.StatusUnauthorized, Kind: ErrTokenInvalid, Body: "Kiro 登录已失效，请重新授权"}
+		}
+		return resp, errRefresh
 	}
 	return send(refreshed)
+}
+
+func refreshForRequest(target refreshTarget, cred Credential, repairSave bool) (Credential, error) {
+	return coordinateRefresh(target.authID, cred, func(c Credential) (Credential, error) {
+		return refreshCredential(c, config.Get(), target.callbackID, time.Now())
+	}, func(c Credential) error {
+		return persistCredential(target, c)
+	}, repairSave)
 }
 
 func generateRequest(callbackID string, cred Credential, conv convertedRequest, cfg config.PluginConfig) (hostapi.HTTPRequest, error) {
@@ -165,14 +184,14 @@ func postGenerate(authID, callbackID string, cred Credential, conv convertedRequ
 }
 
 // persistCredential writes a refreshed token back so a rotated refresh token is
-// not lost. A failure only costs a later refresh, so it does not fail the request.
-func persistCredential(target refreshTarget, cred Credential) {
+// not lost. The refresh coordinator retains failed saves for the next caller.
+func persistCredential(target refreshTarget, cred Credential) error {
 	name := filepath.Base(target.path)
 	if name == "." || name == "/" {
 		name = filepath.Base(target.authID)
 	}
 	if name == "." || name == "/" || name == "" {
-		return
+		return errors.New("cannot persist refreshed credential without an auth file name")
 	}
 	fields, err := decodeFields(target.storageJSON)
 	if err == nil {
@@ -184,6 +203,7 @@ func persistCredential(target refreshTarget, cred Credential) {
 	if err != nil {
 		log.Printf("kiro4cpa: persisting refreshed token for %s failed: %v", target.authID, err)
 	}
+	return err
 }
 
 func upstreamErrorEnvelope(err error) []byte {

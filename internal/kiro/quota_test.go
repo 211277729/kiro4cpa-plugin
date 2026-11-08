@@ -42,11 +42,11 @@ func TestQuotaFetchMapsUsageLimits(t *testing.T) {
 		t.Fatalf("groups %+v", resp.Groups)
 	}
 	monthly, trial := resp.Groups[0].Buckets[0], resp.Groups[0].Buckets[1]
-	if monthly.Window != "monthly" || monthly.Description != "2.79 / 50" || monthly.ResetTime != "2026-11-01T00:00:00Z" ||
+	if monthly.Window != "monthly" || !strings.HasPrefix(monthly.Description, "2.79 / 50；查询于 ") || monthly.ResetTime != "2026-11-01T00:00:00Z" ||
 		monthly.RemainingFraction < 0.944 || monthly.RemainingFraction > 0.945 {
 		t.Fatalf("monthly %+v", monthly)
 	}
-	if trial.Window != "free_trial" || trial.RemainingFraction != 0.75 || trial.Description != "10 / 40" {
+	if trial.Window != "free_trial" || trial.RemainingFraction != 0.75 || !strings.HasPrefix(trial.Description, "10 / 40；查询于 ") {
 		t.Fatalf("trial %+v", trial)
 	}
 }
@@ -146,5 +146,24 @@ func TestQuotaWithoutTrial(t *testing.T) {
 	resp := quotaResponse(l)
 	if resp.Subscription.Plan != "KIRO PRO+" || resp.Summary[0].Value != 654.88 || resp.Summary[1].Value != 2000 || len(resp.Groups[0].Buckets) != 1 {
 		t.Fatalf("resp %+v", resp)
+	}
+}
+
+func TestQuotaMissingUsageIsAnError(t *testing.T) {
+	stubHTTP(t, func(hostapi.HTTPRequest) (*hostapi.HTTPResponse, error) {
+		return ok(`{"subscriptionInfo":{"subscriptionTitle":"KIRO PRO"}}`)
+	})
+	raw, _ := json.Marshal(quotaRequest())
+	out, _ := handleQuotaFetch(raw)
+	env := decodeEnvelope(t, out)
+	if env.OK || env.Error.Code != "quota_unavailable" || env.Error.HTTPStatus != 502 {
+		t.Fatalf("missing data reported as quota: %s", out)
+	}
+}
+
+func TestQuotaExhaustionDescription(t *testing.T) {
+	bucket := quotaBucket("monthly", 1000, 1000, 1796083200)
+	if bucket.RemainingFraction != 0 || !strings.Contains(bucket.Description, "额度已用完") || bucket.ResetTime != "2026-12-01T00:00:00Z" {
+		t.Fatalf("bucket=%+v", bucket)
 	}
 }

@@ -1,83 +1,179 @@
 package kiro
 
 import (
+	"crypto/sha256"
 	"errors"
+	"slices"
 	"sync"
+	"time"
 )
 
-// refreshes makes a credential spend each refresh token once. Kiro may rotate
-// the refresh token, so two refreshes from the same stored state would leave
-// the slower one holding a token Kiro has already replaced; the next
-// scheduled refresh would then fail with invalid_grant and disable the account.
-var refreshes = struct {
+const refreshHistoryLimit = 64
+
+// Serializes refreshes and plugin writes per account. Host-owned writes happen
+// after auth.refresh returns. History keeps fingerprints only;
+// only the current credential retains its tokens. This state is process-local.
+type refreshCoordinator struct {
 	mu       sync.Mutex
-	inflight map[refreshKey]*refreshCall
-	// latest is the last successful refresh per credential. A request that
-	// still carries the replaced tokens gets the replacement instead of
-	// spending the old refresh token again.
-	latest map[string]refreshResult
-}{
-	inflight: map[refreshKey]*refreshCall{},
+	inflight map[string]*refreshCall
+	latest   map[string]refreshResult
+}
+
+var refreshes = refreshCoordinator{
+	inflight: map[string]*refreshCall{},
 	latest:   map[string]refreshResult{},
 }
 
-type refreshKey struct {
-	authID, accessToken, refreshToken string
-}
+type refreshKey [sha256.Size]byte
 
 type refreshCall struct {
+	key  refreshKey
 	done chan struct{}
 	cred Credential
 	err  error
 }
 
 type refreshResult struct {
-	from refreshKey
-	to   Credential
+	to          Credential
+	history     []refreshKey
+	pruned      bool
+	persisted   bool
+	savePending bool
 }
 
-// errRefreshAborted is what waiters see when the refresh they joined panicked.
-var errRefreshAborted = errors.New("kiro refresh aborted")
+var (
+	errRefreshAborted  = errors.New("kiro refresh aborted")
+	errStaleCredential = errors.New("kiro credential snapshot is too old; reload the current credential or sign in again")
+)
 
-func keyOf(authID string, c Credential) refreshKey {
-	return refreshKey{authID: authID, accessToken: c.AccessToken, refreshToken: c.RefreshToken}
+func keyOf(_ string, c Credential) refreshKey {
+	return sha256.Sum256([]byte(c.AccessToken + "\x00" + c.RefreshToken))
 }
 
-// sharedRefresh runs refresh at most once for one credential state. Callers
-// that arrive while it runs wait for its result; callers that arrive later
-// with the tokens it replaced get the credential it produced. Only the caller
-// that runs refresh sees its side effects, such as persisting the result.
+func (r *refreshResult) remember(key refreshKey) {
+	if slices.Contains(r.history, key) {
+		return
+	}
+	r.history = append(r.history, key)
+	if len(r.history) > refreshHistoryLimit {
+		r.history = r.history[1:]
+		r.pruned = true
+	}
+}
+
 func sharedRefresh(authID string, c Credential, refresh func(Credential) (Credential, error)) (Credential, error) {
-	// API key credentials never change on refresh, and without an auth ID
-	// there is nothing to tell two credentials apart.
+	return coordinatedRefresh(authID, c, refresh, nil)
+}
+
+func hasPendingRefreshSave(authID string, c Credential) bool {
+	refreshes.mu.Lock()
+	defer refreshes.mu.Unlock()
+	last, ok := refreshes.latest[authID]
+	key := keyOf(authID, c)
+	return ok && last.savePending && (key == keyOf(authID, last.to) || slices.Contains(last.history, key))
+}
+
+// A save failure does not discard rotated tokens. The next executor/quota caller
+// retries saving the cached result without spending the old refresh token again.
+func coordinatedRefresh(authID string, c Credential, refresh func(Credential) (Credential, error), persist func(Credential) error) (Credential, error) {
+	return coordinateRefresh(authID, c, refresh, persist, false)
+}
+
+// repairSave retries persistence before a request. A token rejected by the
+// upstream must instead refresh even if its last save is still pending.
+func coordinateRefresh(authID string, c Credential, refresh func(Credential) (Credential, error), persist func(Credential) error, repairSave bool) (Credential, error) {
 	if authID == "" || c.AuthMethod == AuthMethodAPIKey {
-		return refresh(c)
+		fresh, err := refresh(c)
+		if err == nil && persist != nil {
+			_ = persist(fresh)
+		}
+		return fresh, err
 	}
 	key := keyOf(authID, c)
-
-	refreshes.mu.Lock()
-	if last, ok := refreshes.latest[authID]; ok && last.from == key {
+	for {
+		refreshes.mu.Lock()
+		if call, ok := refreshes.inflight[authID]; ok {
+			refreshes.mu.Unlock()
+			<-call.done
+			if call.key == key && call.err != nil {
+				return call.cred, call.err
+			}
+			continue
+		}
+		last, exists := refreshes.latest[authID]
+		current := exists && key == keyOf(authID, last.to)
+		knownOld := exists && !current && slices.Contains(last.history, key)
+		if repairSave && !current && !knownOld {
+			refreshes.mu.Unlock()
+			return c, nil
+		}
+		reuse := knownOld || (repairSave && current)
+		if reuse {
+			// Only tokens belong to the cache; retain the caller's current region,
+			// pacing, identity and other account settings.
+			c.AccessToken, c.RefreshToken = last.to.AccessToken, last.to.RefreshToken
+			c.ExpiresAt, c.ProfileArn = last.to.ExpiresAt, last.to.ProfileArn
+			// An old snapshot may outlive the replacement access token. Renew the
+			// latest token in that case, never the old snapshot's refresh token.
+			if expiry, err := time.Parse(time.RFC3339, c.ExpiresAt); err == nil && !expiry.After(time.Now()) {
+				reuse = false
+			}
+		} else if exists && last.pruned && key != keyOf(authID, last.to) {
+			// Once fingerprints are retired, unknown older snapshots fail closed.
+			// A newly signed-in credential with a later expiry can still replace it.
+			expiry, err := time.Parse(time.RFC3339, c.ExpiresAt)
+			latestExpiry, latestErr := time.Parse(time.RFC3339, last.to.ExpiresAt)
+			if err != nil || latestErr != nil || !expiry.After(latestExpiry) {
+				refreshes.mu.Unlock()
+				return c, errStaleCredential
+			}
+		}
+		if reuse && (persist == nil || last.persisted) {
+			refreshes.mu.Unlock()
+			return c, nil
+		}
+		call := &refreshCall{key: key, done: make(chan struct{}), err: errRefreshAborted}
+		refreshes.inflight[authID] = call
 		refreshes.mu.Unlock()
-		return last.to, nil
+		return runRefresh(authID, c, last, exists, reuse, call, refresh, persist)
 	}
-	if call, ok := refreshes.inflight[key]; ok {
-		refreshes.mu.Unlock()
-		<-call.done
-		return call.cred, call.err
-	}
-	call := &refreshCall{done: make(chan struct{}), err: errRefreshAborted}
-	refreshes.inflight[key] = call
-	refreshes.mu.Unlock()
+}
 
+func runRefresh(authID string, c Credential, result refreshResult, exists, reuse bool, call *refreshCall, refresh func(Credential) (Credential, error), persist func(Credential) error) (Credential, error) {
+	// Copy before appending: readers may still hold a previous result's slice.
+	result.history = slices.Clone(result.history)
+	updated := false
 	defer func() {
 		refreshes.mu.Lock()
-		delete(refreshes.inflight, key)
-		if call.err == nil {
-			refreshes.latest[authID] = refreshResult{from: key, to: call.cred}
+		if updated {
+			refreshes.latest[authID] = result
 		}
+		delete(refreshes.inflight, authID)
 		refreshes.mu.Unlock()
 		close(call.done)
 	}()
-	call.cred, call.err = refresh(c)
-	return call.cred, call.err
+	if reuse {
+		result.to = c
+		call.cred = c
+	} else {
+		fresh, err := refresh(c)
+		if err != nil {
+			call.cred, call.err = fresh, err
+			return fresh, err
+		}
+		if exists {
+			result.remember(keyOf(authID, result.to))
+		}
+		result.remember(keyOf(authID, c))
+		result.to, result.persisted = fresh, false
+		result.savePending = false
+		call.cred = fresh
+	}
+	updated = true
+	if persist != nil && !result.persisted {
+		result.persisted = persist(result.to) == nil
+		result.savePending = !result.persisted
+	}
+	call.err = nil
+	return call.cred, nil
 }

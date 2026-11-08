@@ -33,6 +33,22 @@ func (f Frame) EventType() string   { return f.header(":event-type") }
 type Decoder struct {
 	buf     []byte
 	Skipped int
+	frames  int
+}
+
+// Finish rejects a damaged or incomplete response instead of treating EOF as
+// a successful assistant turn. Unknown, well-formed event types remain valid.
+func (d *Decoder) Finish() error {
+	if d.Skipped > 0 {
+		return errors.New("corrupt kiro event stream")
+	}
+	if len(d.buf) > 0 {
+		return errors.New("truncated kiro event stream")
+	}
+	if d.frames == 0 {
+		return errors.New("empty kiro event stream")
+	}
+	return nil
 }
 
 func (d *Decoder) Feed(chunk []byte) []Frame {
@@ -62,6 +78,7 @@ func (d *Decoder) Feed(chunk []byte) []Frame {
 			continue
 		}
 		frames = append(frames, Frame{Headers: headers, Payload: frame[preludeLen+headersLen : total-4]})
+		d.frames++
 	}
 	if len(d.buf) == 0 {
 		d.buf = nil
@@ -127,7 +144,7 @@ func headerValue(typ byte, v []byte) any {
 	case 1:
 		return false
 	case 2:
-		return int8(v[0])
+		return int8(v[0]) // #nosec G115 -- AWS encodes signed bytes as two's complement.
 	// The event stream encoding stores signed integers as two's complement, so
 	// reinterpreting the unsigned bytes is the decoding, not an overflow.
 	case 3:

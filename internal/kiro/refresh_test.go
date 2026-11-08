@@ -43,7 +43,7 @@ func resetRefreshes(t *testing.T) {
 	t.Helper()
 	clear := func() {
 		refreshes.mu.Lock()
-		refreshes.inflight = map[refreshKey]*refreshCall{}
+		refreshes.inflight = map[string]*refreshCall{}
 		refreshes.latest = map[string]refreshResult{}
 		refreshes.mu.Unlock()
 	}

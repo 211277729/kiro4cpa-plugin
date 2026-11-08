@@ -176,7 +176,7 @@ func regionFromARN(arn string) string {
 }
 
 func mergeCredential(fields map[string]any, cred Credential) ([]byte, error) {
-	overlayRaw, err := json.Marshal(cred)
+	overlayRaw, err := json.Marshal(cred) // #nosec G117 -- Credential JSON is intentionally persisted by the trusted CPA host, never logged.
 	if err != nil {
 		return nil, err
 	}

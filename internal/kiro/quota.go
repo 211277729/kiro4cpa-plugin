@@ -80,13 +80,27 @@ func handleQuotaFetch(request []byte) ([]byte, error) {
 		return fetchUsageLimits(c, config.Get(), req.HostCallbackID)
 	})
 	if err != nil {
+		var up *UpstreamError
+		if errors.As(err, &up) && up.Kind == ErrTokenInvalid {
+			return wire.ErrorStatus("quota_auth_failed", "额度查询认证失败，请重新授权 Kiro 账号", http.StatusUnauthorized, false), nil
+		}
 		return upstreamErrorEnvelope(err), nil
 	}
 	var limits usageLimits
 	if err := json.Unmarshal(body, &limits); err != nil {
 		return wire.ErrorStatus("upstream_error", "decode kiro usage limits: "+err.Error(), http.StatusBadGateway, true), nil
 	}
-	return wire.OK(quotaResponse(limits)), nil
+	if len(limits.UsageBreakdownList) == 0 {
+		return wire.ErrorStatus("quota_unavailable", "Kiro 未返回用量数据，请稍后重试", http.StatusBadGateway, true), nil
+	}
+	response := quotaResponse(limits)
+	queriedAt := time.Now().UTC().Format("2006-01-02 15:04:05 UTC")
+	for i := range response.Groups {
+		for j := range response.Groups[i].Buckets {
+			response.Groups[i].Buckets[j].Description += "；查询于 " + queriedAt
+		}
+	}
+	return wire.OK(response), nil
 }
 
 // fetchUsageLimits tries each region, with and without the profile ARN, and
@@ -125,6 +139,11 @@ func fetchUsageLimits(cred Credential, cfg config.PluginConfig, callbackID strin
 		}
 
 		lastResp = resp
+		// Authentication is independent of region/profile fallback. Preserve it
+		// so withRefresh can renew the token before trying other endpoints.
+		if up := classifyUpstream(resp.StatusCode, resp.Body); up.Kind == ErrTokenInvalid {
+			return nil, up
+		}
 		bodyStr := string(resp.Body)
 		shouldRetry := resp.StatusCode == http.StatusForbidden ||
 			(resp.StatusCode == http.StatusBadRequest &&
@@ -182,8 +201,8 @@ func quotaResponse(l usageLimits) pluginapi.QuotaFetchResponse {
 		}
 		// The summary is the total usable credit, as kiro.rs reports it.
 		out.Summary = append(out.Summary,
-			pluginapi.QuotaMetric{Key: key + "_used", Label: name + " 已用", Value: used},
-			pluginapi.QuotaMetric{Key: key + "_limit", Label: name + " 上限", Value: limit},
+			pluginapi.QuotaMetric{Key: key + "_used", Label: name + " 已用", Value: used, Unit: name},
+			pluginapi.QuotaMetric{Key: key + "_limit", Label: name + " 上限", Value: limit, Unit: name},
 		)
 		out.Groups = append(out.Groups, pluginapi.QuotaGroup{DisplayName: name, Buckets: buckets})
 	}
@@ -194,6 +213,9 @@ func quotaBucket(window string, used, limit, resetUnix float64) pluginapi.QuotaB
 	b := pluginapi.QuotaBucket{Window: window, Description: fmt.Sprintf("%s / %s", trimFloat(used), trimFloat(limit))}
 	if limit > 0 {
 		b.RemainingFraction = max(0, min(1, 1-used/limit))
+		if used >= limit {
+			b.Description += "；额度已用完"
+		}
 	}
 	if resetUnix > 0 {
 		b.ResetTime = time.Unix(int64(resetUnix), 0).UTC().Format(time.RFC3339)

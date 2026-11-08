@@ -97,7 +97,8 @@ func pumpStream(upstream, streamID string, conv convertedRequest) {
 		for _, f := range dec.Feed(chunk.Payload) {
 			ev, errEv := DecodeEvent(f)
 			if errEv != nil {
-				continue
+				finish(errEv.Error())
+				return
 			}
 			events := sse.handle(ev)
 			// A later in-band error also ends the stream: CPA appends an error
@@ -117,9 +118,17 @@ func pumpStream(upstream, streamID string, conv convertedRequest) {
 			}
 			pending = nil
 		}
+		if dec.Skipped > 0 {
+			finish("corrupt kiro event stream")
+			return
+		}
 		if chunk.Done {
 			break
 		}
+	}
+	if err := dec.Finish(); err != nil {
+		finish(err.Error())
+		return
 	}
 	emit(streamID, append(pending, sse.finish()...))
 	finish("")

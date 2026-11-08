@@ -172,7 +172,7 @@ Import credentials accepts three types:
 | IdC Refresh Token (Builder ID / enterprise SSO) | Refresh Token, Client ID, Client Secret, Region | `refreshToken` in the AWS SSO cache (`~/.aws/sso/cache/`), and `clientId` / `clientSecret` from the client registration file in the same directory |
 | Kiro API Key | API Key | An API key generated in the Kiro console |
 
-Region defaults to `us-east-1`. Import checks only the required fields; after saving, the plugin tries to refresh the token and read the account email for the file name. A failed refresh still saves the file, so the account status in the panel is what tells whether the credential works.
+Region defaults to `us-east-1`. Import validates required fields, then tries OAuth token refresh or an API Key quota lookup. The page distinguishes valid, invalid and temporarily unverified credentials. Failed validation still allows CPA to receive the credential; confirm the final save and account state in the management panel. An unavailable account email does not prevent import.
 
 The sign-in page talks to CPA's management API and needs the management key. If "Remember password" was ticked when signing into the panel and both are opened from the same address, the page reads the key the panel saved; otherwise it asks for it and does not store it.
 
@@ -194,3 +194,12 @@ Protocol details were informed by these MIT projects; see [THIRD_PARTY_NOTICES](
 ## License
 
 [MIT](LICENSE)
+
+## Recovery and compatibility
+
+- Refreshes and plugin credential writes are serialized per account; CPA persists scheduled refresh responses separately. Failed plugin writes retain the rotated tokens and are retried by later requests. The coordinator retains at most 64 old credential fingerprints; snapshots older than retained history fail instead of spending a retired refresh token again. This process-local cache does not replace durable storage by CPA.
+- Malformed, corrupt and truncated upstream event streams fail explicitly rather than returning a successful incomplete answer.
+- Reloading the login page restores the method, authorization link and device code. Authentication errors stop polling until the management key is explicitly corrected; three consecutive network failures also pause polling. Failed or expired authorization requires starting a new Kiro login from the management panel.
+- Imports attempt OAuth refresh or an API Key quota lookup and distinguish valid, invalid and unverified credentials. Invalid or unverified credentials can still be handed to CPA. Keep the original panel open and confirm the final save there; the plugin page cannot acknowledge the host's durable save.
+- Quota summaries use Credit and include query time, exhaustion state and the upstream reset time. Authentication and lookup errors are not represented as zero quota.
+- The converter handles messages, tool definitions/results, Base64 images and thinking. It does not forward or enforce `max_tokens`, `temperature`, `top_p`, `top_k`, `stop_sequences`, `tool_choice` or structured output schemas. Trailing assistant prefill and unsupported content types such as image URLs and documents are omitted.
