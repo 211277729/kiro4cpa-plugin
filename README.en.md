@@ -118,6 +118,8 @@ oauth-model-alias:
       fork: true   # keep the original ID as well
 ```
 
+Account model exclusions accept original IDs, configured CPA aliases and `*` wildcards. Selecting `claude-sonnet-4-5` in the official panel excludes its underlying `claude-sonnet-4.5` from that account before registration; other accounts remain eligible. Excluding an alias disables the underlying model and all its aliases for that account. Account alias definitions override provider definitions with the same alias. Global and account exclusions are additive; clearing an account rule restores models not globally excluded.
+
 ## Quota
 
 The plugin implements CPA's QuotaProvider, so an account's Kiro quota can be queried through CPA's management API:
@@ -198,7 +200,10 @@ Protocol details were informed by these MIT projects; see [THIRD_PARTY_NOTICES](
 ## Recovery and compatibility
 
 - Refreshes and plugin credential writes are serialized per account; CPA persists scheduled refresh responses separately. Failed plugin writes retain the rotated tokens and are retried by later requests. The coordinator retains at most 64 old credential fingerprints; snapshots older than retained history fail instead of spending a retired refresh token again. This process-local cache does not replace durable storage by CPA.
-- Malformed, corrupt and truncated upstream event streams fail explicitly rather than returning a successful incomplete answer.
+- Malformed, corrupt and truncated upstream event streams fail explicitly rather than returning a successful incomplete answer. Tool arguments are accumulated per call ID, including interleaved fragments and late names. Output blocks are serialized for CPA Responses compatibility; the first tool still streams immediately. Invalid JSON, non-object arguments and nonempty input missing its stop event fail without a normal `message_stop`; no-argument calls may omit the stop event.
+- Streaming and non-streaming share completion rules for upstream truncation, context limits and refusals. Thinking-only output does not imply truncation. Refusal during tool output aborts the response. HTTP error bodies are accumulated within a size limit before classification so split token-expiry messages still trigger refresh.
+- Consecutive trailing user messages form one current turn, preserving images and tool results without inserting a fictitious assistant “OK”. Tool descriptions retain client instructions without forced Write/Edit chunking or suppressed progress reports; Kiro name/description limits and schema normalization still apply.
+- Native reasoning follows `ZyphrZero/kiro.rs` v0.9.8: known Claude models use `additionalModelRequestFields.output_config.effort`; GPT 5.6 sol/terra/luna use `reasoning.effort`. Unknown models retain prompt-based adaptation. Explicit effort overrides budget-derived effort; Opus 4.6 receives native fields only for explicitly adaptive requests. Explicitly disabled thinking takes precedence. Upstream token usage wins; local output estimates accumulate characters before rounding, independent of fragment count.
 - Reloading the login page restores the method, authorization link and device code. Authentication errors stop polling until the management key is explicitly corrected; three consecutive network failures also pause polling. Failed or expired authorization requires starting a new Kiro login from the management panel.
 - Imports attempt OAuth refresh or an API Key quota lookup and distinguish valid, invalid and unverified credentials. Invalid or unverified credentials can still be handed to CPA. Keep the original panel open and confirm the final save there; the plugin page cannot acknowledge the host's durable save.
 - Quota summaries use Credit and include query time, exhaustion state and the upstream reset time. Authentication and lookup errors are not represented as zero quota.

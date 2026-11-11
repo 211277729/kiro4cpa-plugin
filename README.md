@@ -118,6 +118,8 @@ oauth-model-alias:
       fork: true   # 同时保留原 ID
 ```
 
+账号的「排除模型」支持原始 ID 和 CPA 当前配置的别名，也支持 `*` 通配符。例如 Pro 账号从官方面板选择排除 `claude-sonnet-4-5`，插件会在注册模型前排除该账号对应的 `claude-sonnet-4.5`，其他账号不受影响。禁用的是该账号上的底层模型，因此它的原始 ID 和其他别名也一起禁用；账号级同名别名覆盖通道级映射。全局禁用规则与账号规则叠加，清空账号规则后会恢复未被全局禁用的模型。
+
 ## 用量额度
 
 插件实现了 CPA 的 QuotaProvider，可以通过 CPA 管理接口查询某个账号的 Kiro 额度：
@@ -187,9 +189,12 @@ Region 默认 `us-east-1`。导入时会校验必填字段，并尝试刷新 OAu
 ## 可靠性与兼容性
 
 - 执行请求、额度查询和定时刷新共用账号刷新协调器，插件写回按账号串行，定时刷新结果由 CPA 单独保存。插件保存失败时保留最新 Token，后续请求重试保存；每个账号最多保留 64 份旧凭据指纹，超出记录范围的过旧快照返回错误，不重新消耗旧 Token。缓存仅存在于当前进程，无法替代宿主持久化。
-- 损坏、截断或无法解析的上游事件会返回错误，流式回答不会以正常 `message_stop` 结束。
+- 损坏、截断或无法解析的上游事件会返回错误，流式回答不会以正常 `message_stop` 结束。工具参数按调用 ID 累积，支持交错分片及迟到工具名，输出工具块按顺序排列以兼容 CPA Responses 转换器；非法 JSON、非对象参数或缺少结束标记的非空参数会报错，不替换成空对象。无参数调用允许上游省略结束标记。
+- 流式和非流式共用结束原因规则，保留上游截断、上下文溢出和拒答信号，不把 thinking-only 自动判为截断。工具输出途中发生拒答时终止响应。分块到达的 HTTP 错误体在大小限制内读取后再分类，避免漏触发 Token 刷新。
+- 末尾连续 user 消息合并为当前轮次，保留图片和工具结果，不插入虚构的 assistant「OK」。工具描述保留客户端要求，不再默认注入 Write/Edit 强制分块及禁止进度说明的提示；仍执行 Kiro 必需的名称长度、描述长度和 Schema 规范化。
 - 额度的单位为 Credit；月度、免费试用和赠送额度分别显示用量、上限及官方重置／到期时间。官方面板把桶描述用作行标题，因此不在每行追加查询时间，避免标签过长。认证失败、查询失败与额度耗尽分别处理，失败不伪装成零额度。
 - 当前协议转换处理消息、工具定义及结果、Base64 图片和 thinking。`max_tokens`、`temperature`、`top_p`、`top_k`、`stop_sequences`、`tool_choice` 和结构化输出 schema 尚未转发或强制执行，不应依赖这些参数限制输出或强制选用工具。
+- reasoning/effort 适配参考 `ZyphrZero/kiro.rs` v0.9.8：已知支持的 Claude 模型发送 `additionalModelRequestFields.output_config.effort`，GPT 5.6 sol/terra/luna 发送 `reasoning.effort`；未知模型保持提示词适配。显式 effort 优先，否则由 thinking budget 推导；Opus 4.6 仅对显式 adaptive 请求发送原生字段。`thinking: disabled` 优先。上游真实 token usage 优先，本地输出估算按累计字符计算，避免分片数量影响结果。
 - Kiro 不支持 assistant prefill，末尾的 assistant 预填消息会被丢弃；图片 URL、document 等未实现的内容类型也不会传给上游。
 
 ## 已知限制
