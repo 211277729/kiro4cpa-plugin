@@ -10,28 +10,34 @@ type sseEvent struct {
 	data map[string]any
 }
 
-// sseStream turns Kiro events into a Claude Messages SSE sequence. Claude blocks
-// never overlap, so at most one block is open; starting a block closes the last.
+// Upstream tools may interleave, but CPA's Responses translator requires serial
+// content blocks. Stream the first call immediately and queue later calls until
+// it stops, retaining their arguments by ID.
 type sseStream struct {
+	responseState
 	conv        convertedRequest
 	parser      thinkingParser
 	next        int
 	openIdx     int
 	openKind    string
-	openToolID  string
-	seenTools   map[string]bool
 	signature   string
-	hasToolUse  bool
-	sawThinking bool
-	sawOther    bool
-	stopReason  string
-	usage       *TokenUsage
-	outTokens   int
-	streamErr   *StreamError
+	reasoning   strings.Builder
+	hasText     bool
+	tools       toolAccumulator
+	toolBlocks  map[string]*toolBlock
+	toolCursor  int
+	heldContent []Event
+	output      tokenEstimate
+}
+
+type toolBlock struct {
+	index  int
+	sent   int
+	closed bool
 }
 
 func newSSEStream(conv convertedRequest) *sseStream {
-	return &sseStream{conv: conv, openIdx: -1, seenTools: map[string]bool{}}
+	return &sseStream{conv: conv, openIdx: -1, toolBlocks: make(map[string]*toolBlock)}
 }
 
 func (s *sseStream) start() []sseEvent {
@@ -43,9 +49,21 @@ func (s *sseStream) start() []sseEvent {
 }
 
 func (s *sseStream) handle(ev Event) []sseEvent {
+	s.observe(ev)
+	if s.streamErr != nil {
+		return nil
+	}
+	if s.stopReason == "refusal" && len(s.tools.order) > 0 {
+		s.streamErr = &StreamError{Kind: "error", Code: "ContentFiltered", Message: "upstream refused a response containing tool calls"}
+		return nil
+	}
+	if s.toolCursor < len(s.tools.order) && (ev.Assistant != nil || ev.Reasoning != nil) {
+		s.heldContent = append(s.heldContent, ev)
+		return nil
+	}
 	switch {
 	case ev.Assistant != nil && ev.Assistant.Content != "":
-		s.outTokens += estimateTokens(ev.Assistant.Content)
+		s.output.add(ev.Assistant.Content)
 		if !s.conv.Thinking {
 			return s.text(ev.Assistant.Content)
 		}
@@ -55,48 +73,43 @@ func (s *sseStream) handle(ev Event) []sseEvent {
 			s.signature = ev.Reasoning.Signature
 		}
 		if t := ev.Reasoning.Text; t != "" {
-			s.outTokens += estimateTokens(t)
+			s.output.add(t)
 			if s.conv.Thinking {
 				return s.thinking(t)
 			}
-			return s.text(t)
+			s.reasoning.WriteString(t)
 		}
 	case ev.ToolUse != nil:
 		return s.toolUse(*ev.ToolUse)
-	case ev.ContextUsage != nil && ev.ContextUsage.ContextUsagePercentage >= 100:
-		s.stopReason = "model_context_window_exceeded"
-	case ev.Metadata != nil && ev.Metadata.TokenUsage != nil:
-		s.usage = ev.Metadata.TokenUsage
-	case ev.Err != nil && ev.Err.Code == "ContentLengthExceededException":
-		s.stopReason = "max_tokens"
-	case ev.Err != nil:
-		s.streamErr = ev.Err
 	}
 	return nil
 }
 
 func (s *sseStream) finish() []sseEvent {
-	out := s.apply(s.parser.flush())
-	if s.sawThinking && !s.sawOther {
-		// A thinking-only answer means Kiro stopped before the visible reply.
-		if s.stopReason == "" {
-			s.stopReason = "max_tokens"
-		}
-		out = append(out, s.text(" ")...)
+	if s.streamErr != nil {
+		return nil
+	}
+	if s.stopReason == "refusal" && len(s.tools.order) > 0 {
+		s.streamErr = &StreamError{Kind: "error", Code: "ContentFiltered", Message: "upstream refused a response containing tool calls"}
+		return nil
+	}
+	if s.streamErr = s.tools.finish(); s.streamErr != nil {
+		return nil
+	}
+	for _, id := range s.tools.order {
+		// Complete empty no-argument tools which omitted their stop event.
+		s.tools.tools[id].stopped = true
+	}
+	out := s.drainTools()
+	out = append(out, s.apply(s.parser.flush())...)
+	if !s.conv.Thinking && !s.hasText && len(s.tools.order) == 0 && s.stopReason != "refusal" && s.reasoning.Len() > 0 {
+		out = append(out, s.text(s.reasoning.String())...)
 	}
 	out = append(out, s.closeBlock()...)
-	stop := s.stopReason
-	switch {
-	case stop != "":
-	case s.hasToolUse:
-		stop = "tool_use"
-	default:
-		stop = "end_turn"
-	}
 	return append(out,
 		sseEvent{"message_delta", map[string]any{"type": "message_delta",
-			"delta": map[string]any{"stop_reason": stop, "stop_sequence": nil},
-			"usage": usageFields(s.usage, s.conv.InputTokens, s.outTokens)}},
+			"delta": map[string]any{"stop_reason": s.completionReason(len(s.tools.order) > 0), "stop_sequence": nil},
+			"usage": usageFields(s.usage, s.conv.InputTokens, s.output.tokens())}},
 		sseEvent{"message_stop", map[string]any{"type": "message_stop"}},
 	)
 }
@@ -119,11 +132,11 @@ func (s *sseStream) apply(segs []segment) []sseEvent {
 }
 
 func (s *sseStream) text(t string) []sseEvent {
+	s.hasText = true
 	var out []sseEvent
 	if s.openKind != "text" {
 		out = s.openBlock("text", map[string]any{"type": "text", "text": ""})
 	}
-	s.sawOther = true
 	return append(out, s.delta(map[string]any{"type": "text_delta", "text": t}))
 }
 
@@ -132,30 +145,77 @@ func (s *sseStream) thinking(t string) []sseEvent {
 	if s.openKind != "thinking" {
 		out = s.openBlock("thinking", map[string]any{"type": "thinking", "thinking": ""})
 	}
-	s.sawThinking = true
 	return append(out, s.delta(map[string]any{"type": "thinking_delta", "thinking": t}))
 }
 
 func (s *sseStream) toolUse(tu ToolUseEvent) []sseEvent {
+	if s.stopReason == "refusal" {
+		s.streamErr = &StreamError{Kind: "error", Code: "ContentFiltered", Message: "tool call arrived after upstream refusal"}
+		return nil
+	}
+	_, err := s.tools.add(tu)
+	if err != nil {
+		s.streamErr = err
+		return nil
+	}
+	s.output.add(tu.Input)
 	out := s.apply(s.parser.flush())
-	s.hasToolUse = true
-	if s.openKind != "tool_use" || s.openToolID != tu.ToolUseID {
-		if s.seenTools[tu.ToolUseID] {
-			return out // late fragment for a block that was already closed
+	return append(out, s.drainTools()...)
+}
+
+func (s *sseStream) drainTools() []sseEvent {
+	var out []sseEvent
+	for s.toolCursor < len(s.tools.order) {
+		id := s.tools.order[s.toolCursor]
+		t := s.tools.tools[id]
+		out = append(out, s.emitTool(id, t)...)
+		if !t.stopped || t.name == "" {
+			return out
 		}
-		name := tu.Name
+		s.toolCursor++
+	}
+	held := s.heldContent
+	s.heldContent = nil
+	for _, ev := range held {
+		out = append(out, s.handle(ev)...)
+	}
+	return out
+}
+
+func (s *sseStream) emitTool(id string, t *collectedTool) []sseEvent {
+	// Retain fragments until the tool name arrives.
+	if t.name == "" {
+		return nil
+	}
+	block := s.toolBlocks[id]
+	if block != nil && block.closed {
+		return nil
+	}
+	var out []sseEvent
+	if block == nil {
+		out = s.closeBlock()
+		name := t.name
 		if original, ok := s.conv.ToolNames[name]; ok {
 			name = original
 		}
-		out = append(out, s.openBlock("tool_use", map[string]any{"type": "tool_use", "id": tu.ToolUseID, "name": name, "input": map[string]any{}})...)
-		s.openToolID, s.seenTools[tu.ToolUseID], s.sawOther = tu.ToolUseID, true, true
+		block = &toolBlock{index: s.next}
+		s.next++
+		s.toolBlocks[id] = block
+		out = append(out, sseEvent{"content_block_start", map[string]any{"type": "content_block_start", "index": block.index,
+			"content_block": map[string]any{"type": "tool_use", "id": id, "name": name, "input": map[string]any{}}}})
 	}
-	if tu.Input != "" {
-		s.outTokens += (len(tu.Input) + 3) / 4
-		out = append(out, s.delta(map[string]any{"type": "input_json_delta", "partial_json": tu.Input}))
+	input := t.input.String()
+	if t.stopped && strings.TrimSpace(input) == "" {
+		input += "{}"
 	}
-	if tu.Stop {
-		out = append(out, s.closeBlock()...)
+	if len(input) > block.sent {
+		out = append(out, sseEvent{"content_block_delta", map[string]any{"type": "content_block_delta", "index": block.index,
+			"delta": map[string]any{"type": "input_json_delta", "partial_json": input[block.sent:]}}})
+		block.sent = len(input)
+	}
+	if t.stopped {
+		out = append(out, sseEvent{"content_block_stop", map[string]any{"type": "content_block_stop", "index": block.index}})
+		block.closed = true
 	}
 	return out
 }
@@ -180,7 +240,7 @@ func (s *sseStream) closeBlock() []sseEvent {
 		out = append(out, s.delta(map[string]any{"type": "signature_delta", "signature": s.signature}))
 	}
 	out = append(out, sseEvent{"content_block_stop", map[string]any{"type": "content_block_stop", "index": s.openIdx}})
-	s.openIdx, s.openKind, s.openToolID = -1, "", ""
+	s.openIdx, s.openKind = -1, ""
 	return out
 }
 

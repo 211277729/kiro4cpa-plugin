@@ -40,10 +40,7 @@ func buildHistory(req claudeRequest, messages []claudeMessage, prefix, modelID s
 		}
 	}
 	flushAssistants()
-	if len(users) > 0 {
-		flushUsers()
-		history = append(history, historyEntry{AssistantResponseMessage: &assistantMessage{Content: "OK"}})
-	}
+	flushUsers()
 	return history
 }
 
@@ -51,7 +48,6 @@ func leadingInstructions(system, prefix string) string {
 	if system == "" {
 		return prefix
 	}
-	system += "\n" + chunkedWritePolicy
 	if prefix != "" && !hasThinkingTags(system) {
 		return prefix + "\n" + system
 	}

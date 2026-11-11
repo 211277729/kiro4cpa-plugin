@@ -74,8 +74,8 @@ func handleExecute(request []byte) ([]byte, error) {
 	}
 	// Any in-band error means the answer is incomplete; partial content must not
 	// be returned as a finished message.
-	if collector.streamErr != nil {
-		return wire.ErrorStatus("upstream_stream_error", collector.streamErr.Error(), http.StatusBadGateway, true), nil
+	if validationErr := collector.validate(); validationErr != nil {
+		return wire.ErrorStatus("upstream_stream_error", validationErr.Error(), http.StatusBadGateway, validationErr.Code != "ContentFiltered"), nil
 	}
 	return wire.OK(pluginapi.ExecutorResponse{Payload: collector.message(conv)}), nil
 }

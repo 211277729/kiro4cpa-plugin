@@ -171,3 +171,45 @@ func TestExecuteStreamRequiresStreamID(t *testing.T) {
 		t.Fatalf("env %s", out)
 	}
 }
+
+func TestStreamErrorBodyBoundsAndReadFailures(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		chunks []hostapi.StreamChunk
+		want   string
+	}{
+		{"split", []hostapi.StreamChunk{{Payload: []byte("first ")}, {Payload: []byte("second"), Done: true}}, "first second"},
+		{"chunk error", []hostapi.StreamChunk{{Payload: []byte("partial"), Error: "reset"}}, "partial"},
+		{"too large", []hostapi.StreamChunk{{Payload: []byte(strings.Repeat("x", maxStreamErrorBytes+100))}}, strings.Repeat("x", maxStreamErrorBytes)},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			s := stubStream(t, &streamStub{status: 429, reads: tc.chunks})
+			env := streamCall(t, pingRequest)
+			if env.OK || env.Error.HTTPStatus != 429 || len(s.ended) != 1 || !strings.Contains(env.Error.Message, tc.want[:min(len(tc.want), 512)]) {
+				t.Fatalf("status/close/body mismatch; len=%d ended=%v", len(env.Error.Message), s.ended)
+			}
+		})
+	}
+	t.Run("body byte cap", func(t *testing.T) {
+		stubStream(t, &streamStub{reads: []hostapi.StreamChunk{{Payload: []byte(strings.Repeat("x", maxStreamErrorBytes+100))}}})
+		if body := readStreamErrorBody("up-1"); len(body) != maxStreamErrorBytes {
+			t.Fatalf("body bytes=%d", len(body))
+		}
+	})
+	t.Run("empty chunks bounded", func(t *testing.T) {
+		s := stubStream(t, &streamStub{status: 403})
+		reads := 0
+		hostStreamRead = func(string) (hostapi.StreamChunk, error) { reads++; return hostapi.StreamChunk{}, nil }
+		env := streamCall(t, pingRequest)
+		if env.OK || reads != maxStreamErrorReads || len(s.ended) != 1 {
+			t.Fatalf("reads=%d ended=%v", reads, s.ended)
+		}
+	})
+	t.Run("callback error closes stream", func(t *testing.T) {
+		s := stubStream(t, &streamStub{status: 429})
+		hostStreamRead = func(string) (hostapi.StreamChunk, error) { return hostapi.StreamChunk{}, errors.New("reset") }
+		if env := streamCall(t, pingRequest); env.OK || env.Error.HTTPStatus != 429 || len(s.ended) != 1 {
+			t.Fatalf("env=%+v ended=%v", env, s.ended)
+		}
+	})
+}

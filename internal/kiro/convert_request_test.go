@@ -38,7 +38,7 @@ func TestConvertClaudeCodeTurn(t *testing.T) {
 	}
 	lead := st.History[0].UserInputMessage.Content
 	if !strings.HasPrefix(lead, "<thinking_mode>enabled</thinking_mode><max_thinking_length>24576</max_thinking_length>\nYou are helpful.") ||
-		!strings.Contains(lead, chunkedWritePolicy) || st.History[1].AssistantResponseMessage.Content != "I will follow these instructions." {
+		strings.Contains(lead, "Complete all chunked operations") || st.History[1].AssistantResponseMessage.Content != "I will follow these instructions." {
 		t.Fatalf("lead pair %q / %+v", lead, st.History[1])
 	}
 	if len(st.History) != 4 || st.History[2].UserInputMessage.Content != "read a.txt" {
@@ -54,7 +54,7 @@ func TestConvertClaudeCodeTurn(t *testing.T) {
 		ctx.ToolResults[0].Content[0].Text != "hello" || ctx.ToolResults[0].Status != "success" {
 		t.Fatalf("current %+v ctx %+v", cur, ctx)
 	}
-	if len(ctx.Tools) != 2 || !strings.Contains(ctx.Tools[1].ToolSpecification.Description, "150 lines") ||
+	if len(ctx.Tools) != 2 || ctx.Tools[1].ToolSpecification.Description != "write" ||
 		string(ctx.Tools[0].ToolSpecification.InputSchema.JSON) != `{"additionalProperties":true,"properties":{"p":{"type":"string"}},"required":["p"],"type":"object"}` {
 		t.Fatalf("tools %+v", ctx.Tools)
 	}
@@ -82,11 +82,11 @@ func TestConvertMergesUserRunsAndClosesWithAssistant(t *testing.T) {
 	  {"role":"user","content":"a"},{"role":"user","content":[{"type":"image","source":{"media_type":"image/png","data":"AAA"}}]},
 	  {"role":"assistant","content":"b"},{"role":"user","content":"c"},{"role":"user","content":"d"},{"role":"user","content":"e"}]}`)
 	h := c.Payload.ConversationState.History
-	if len(h) != 4 || h[0].UserInputMessage.Content != "a" || len(h[0].UserInputMessage.Images) != 1 ||
-		h[0].UserInputMessage.Images[0].Format != "png" || h[2].UserInputMessage.Content != "c\nd" || h[3].AssistantResponseMessage.Content != "OK" {
+	if len(h) != 2 || h[0].UserInputMessage.Content != "a" || len(h[0].UserInputMessage.Images) != 1 ||
+		h[0].UserInputMessage.Images[0].Format != "png" || h[1].AssistantResponseMessage.Content != "b" {
 		t.Fatalf("history %+v", h)
 	}
-	if c.Payload.ConversationState.CurrentMessage.UserInputMessage.Content != "e" {
+	if c.Payload.ConversationState.CurrentMessage.UserInputMessage.Content != "c\nd\ne" {
 		t.Fatalf("current %+v", c.Payload.ConversationState.CurrentMessage)
 	}
 }

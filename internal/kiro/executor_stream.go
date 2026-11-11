@@ -51,9 +51,7 @@ func openGenerateStream(authID, callbackID string, cred Credential, conv convert
 	}
 	var body []byte
 	if resp.StreamID != "" {
-		if chunk, errRead := hostStreamRead(resp.StreamID); errRead == nil {
-			body = chunk.Payload
-		}
+		body = readStreamErrorBody(resp.StreamID)
 		_ = hostHTTPStreamEnd(resp.StreamID)
 	}
 	upErr := classifyUpstream(resp.StatusCode, body)
@@ -130,7 +128,12 @@ func pumpStream(upstream, streamID string, conv convertedRequest) {
 		finish(err.Error())
 		return
 	}
-	emit(streamID, append(pending, sse.finish()...))
+	events := sse.finish()
+	if sse.streamErr != nil {
+		finish(sse.streamErr.Error())
+		return
+	}
+	emit(streamID, append(pending, events...))
 	finish("")
 }
 
@@ -142,4 +145,25 @@ func emit(streamID string, events []sseEvent) bool {
 		}
 	}
 	return true
+}
+
+// Bound both bytes and reads when accumulating an untrusted HTTP error body.
+// The host returns arbitrary transport chunks, not complete JSON messages.
+const maxStreamErrorBytes = 64 << 10
+const maxStreamErrorReads = 1024
+
+func readStreamErrorBody(id string) []byte {
+	var body []byte
+	for range maxStreamErrorReads {
+		chunk, err := hostStreamRead(id)
+		if err != nil {
+			break
+		}
+		remaining := maxStreamErrorBytes - len(body)
+		body = append(body, chunk.Payload[:min(len(chunk.Payload), remaining)]...)
+		if chunk.Done || chunk.Error != "" || len(body) == maxStreamErrorBytes {
+			break
+		}
+	}
+	return body
 }

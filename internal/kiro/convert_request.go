@@ -9,13 +9,6 @@ import (
 	"github.com/AkkunYo/kiro4cpa-plugin/internal/models"
 )
 
-// Kiro caps the size of a single tool input, so like kiro.rs we ask the model
-// to write large files in chunks instead of failing on one oversized call.
-const chunkedWritePolicy = "When the Write or Edit tool has content size limits, always comply silently. " +
-	"Never suggest bypassing these limits via alternative tools. " +
-	"Never ask the user whether to switch approaches. " +
-	"Complete all chunked operations without commentary."
-
 const defaultThinkingBudget = 20000
 
 var errNoMessages = errors.New("request has no user message")
@@ -42,10 +35,17 @@ func convertClaudeRequest(raw []byte, cred Credential) (convertedRequest, error)
 
 	toolNames := map[string]string{}
 	tools := convertTools(req.Tools, toolNames)
-	history := buildHistory(req, messages[:len(messages)-1], prefix, modelID, toolNames)
-
-	current := parseContent(messages[len(messages)-1].Content)
-	results, orphans := pairToolResults(history, current.ToolResults)
+	currentStart := len(messages) - 1
+	for currentStart > 0 && messages[currentStart-1].Role == "user" {
+		currentStart--
+	}
+	history := buildHistory(req, messages[:currentStart], prefix, modelID, toolNames)
+	current := mergeUsers(messages[currentStart:], modelID)
+	var currentResults []kiroToolResult
+	if current.UserInputMessageContext != nil {
+		currentResults = current.UserInputMessageContext.ToolResults
+	}
+	results, orphans := pairToolResults(history, currentResults)
 	history = removeToolUses(history, orphans)
 	tools = appendPlaceholderTools(tools, history)
 
@@ -60,13 +60,13 @@ func convertClaudeRequest(raw []byte, cred Credential) (convertedRequest, error)
 		AgentTaskType:       "vibe",
 		ChatTriggerType:     "MANUAL",
 		CurrentMessage: currentMessage{UserInputMessage: userInputMessage{
-			Content: current.Text, ModelID: modelID, Origin: "AI_EDITOR",
+			Content: current.Content, ModelID: modelID, Origin: "AI_EDITOR",
 			Images: current.Images, UserInputMessageContext: ctx,
 		}},
 		History: history,
 	}
 	return convertedRequest{
-		Payload:     kiroPayload{ConversationState: state, ProfileArn: streamingProfileARN(cred)},
+		Payload:     kiroPayload{ConversationState: state, ProfileArn: streamingProfileARN(cred), AdditionalModelRequestFields: nativeReasoningFields(req, modelID, suffixThinking)},
 		ModelID:     modelID,
 		Thinking:    prefix != "",
 		ToolNames:   toolNames,
@@ -85,25 +85,23 @@ func trimPrefill(messages []claudeMessage) []claudeMessage {
 }
 
 func thinkingPrefix(req claudeRequest, suffixThinking bool) string {
+	modelID, _ := kiroModelID(req.Model)
 	t := req.Thinking
-	switch {
-	case t != nil && t.Type == "enabled":
-		budget := t.BudgetTokens
-		if budget <= 0 {
-			budget = defaultThinkingBudget
-		}
-		budget = min(budget, models.MaxThinkingBudget)
-		return fmt.Sprintf("<thinking_mode>enabled</thinking_mode><max_thinking_length>%d</max_thinking_length>", budget)
-	case t != nil && t.Type == "adaptive":
-		effort := "high"
-		if req.OutputConfig != nil && req.OutputConfig.Effort != "" {
-			effort = req.OutputConfig.Effort
-		}
-		return fmt.Sprintf("<thinking_mode>adaptive</thinking_mode><thinking_effort>%s</thinking_effort>", effort)
-	case suffixThinking && (t == nil || t.Type != "disabled"):
-		return fmt.Sprintf("<thinking_mode>enabled</thinking_mode><max_thinking_length>%d</max_thinking_length>", defaultThinkingBudget)
+	if t != nil && t.Type == "disabled" {
+		return ""
 	}
-	return ""
+	enabled := t != nil && (t.Type == "enabled" || t.Type == "adaptive") || suffixThinking
+	if !enabled {
+		return ""
+	}
+	if (t != nil && t.Type == "adaptive") || supportsNativeReasoning(modelID) {
+		return fmt.Sprintf("<thinking_mode>adaptive</thinking_mode><thinking_effort>%s</thinking_effort>", reasoningEffort(req, modelID))
+	}
+	budget := defaultThinkingBudget
+	if t != nil && t.BudgetTokens > 0 {
+		budget = min(t.BudgetTokens, models.MaxThinkingBudget)
+	}
+	return fmt.Sprintf("<thinking_mode>enabled</thinking_mode><max_thinking_length>%d</max_thinking_length>", budget)
 }
 
 func hasThinkingTags(s string) bool {

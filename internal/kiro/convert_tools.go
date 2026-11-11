@@ -11,25 +11,12 @@ import (
 const (
 	maxToolNameBytes   = 63
 	maxDescriptionRune = 10000
-
-	writeChunkHint = "- IMPORTANT: If the content to write exceeds 150 lines, you MUST only write the first 50 lines using this tool, " +
-		"then use `Edit` tool to append the remaining content in chunks of no more than 50 lines each. " +
-		"If needed, leave a unique placeholder to help append content. Do NOT attempt to write all content at once."
-	editChunkHint = "- IMPORTANT: If the `new_string` content exceeds 50 lines, you MUST split it into multiple Edit calls, " +
-		"each replacing no more than 50 lines at a time. If used to append content, leave a unique placeholder to help append content. " +
-		"On the final chunk, do NOT include the placeholder."
 )
 
 func convertTools(tools []claudeTool, toolNames map[string]string) []kiroTool {
 	out := make([]kiroTool, 0, len(tools))
 	for _, t := range tools {
 		desc := t.Description
-		switch t.Name {
-		case "Write":
-			desc += "\n" + writeChunkHint
-		case "Edit":
-			desc += "\n" + editChunkHint
-		}
 		if utf8.RuneCountInString(desc) > maxDescriptionRune {
 			desc = string([]rune(desc)[:maxDescriptionRune])
 		}

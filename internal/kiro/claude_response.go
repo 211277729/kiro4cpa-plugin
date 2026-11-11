@@ -7,23 +7,18 @@ import (
 
 // responseCollector folds a complete Kiro event stream into one Claude message.
 type responseCollector struct {
-	text        strings.Builder
-	reasoning   strings.Builder
-	signature   string
-	toolOrder   []string
-	tools       map[string]*collectedTool
-	usage       *TokenUsage
-	maxTokens   bool
-	contextFull bool
-	streamErr   *StreamError
-}
-
-type collectedTool struct {
-	name  string
-	input strings.Builder
+	responseState
+	text      strings.Builder
+	reasoning strings.Builder
+	signature string
+	tools     toolAccumulator
 }
 
 func (c *responseCollector) add(ev Event) {
+	c.observe(ev)
+	if c.streamErr != nil {
+		return
+	}
 	switch {
 	case ev.Assistant != nil:
 		c.text.WriteString(ev.Assistant.Content)
@@ -33,27 +28,18 @@ func (c *responseCollector) add(ev Event) {
 			c.signature = ev.Reasoning.Signature
 		}
 	case ev.ToolUse != nil:
-		if c.tools == nil {
-			c.tools = map[string]*collectedTool{}
-		}
-		t, ok := c.tools[ev.ToolUse.ToolUseID]
-		if !ok {
-			t = &collectedTool{name: ev.ToolUse.Name}
-			c.tools[ev.ToolUse.ToolUseID] = t
-			c.toolOrder = append(c.toolOrder, ev.ToolUse.ToolUseID)
-		}
-		t.input.WriteString(ev.ToolUse.Input)
-	case ev.ContextUsage != nil && ev.ContextUsage.ContextUsagePercentage >= 100:
-		c.contextFull = true
-	case ev.Metadata != nil && ev.Metadata.TokenUsage != nil:
-		c.usage = ev.Metadata.TokenUsage
-	case ev.Err != nil:
-		if ev.Err.Code == "ContentLengthExceededException" {
-			c.maxTokens = true
-		} else {
-			c.streamErr = ev.Err
-		}
+		_, c.streamErr = c.tools.add(*ev.ToolUse)
 	}
+}
+
+func (c *responseCollector) validate() *StreamError {
+	if c.streamErr != nil {
+		return c.streamErr
+	}
+	if c.stopReason == "refusal" && len(c.tools.order) > 0 {
+		return &StreamError{Kind: "error", Code: "ContentFiltered", Message: "upstream refused a response containing tool calls"}
+	}
+	return c.tools.finish()
 }
 
 func (c *responseCollector) message(conv convertedRequest) []byte {
@@ -61,6 +47,12 @@ func (c *responseCollector) message(conv convertedRequest) []byte {
 	thinking := c.reasoning.String()
 	if conv.Thinking && thinking == "" {
 		thinking, text = extractThinking(text)
+	}
+	if !conv.Thinking {
+		if text == "" && len(c.tools.order) == 0 && c.stopReason != "refusal" {
+			text = thinking
+		}
+		thinking = ""
 	}
 	content := []map[string]any{}
 	if thinking != "" {
@@ -70,38 +62,28 @@ func (c *responseCollector) message(conv convertedRequest) []byte {
 		}
 		content = append(content, block)
 	}
-	if text != "" || len(c.toolOrder) == 0 {
+	if text != "" || thinking == "" && len(c.tools.order) == 0 {
 		content = append(content, map[string]any{"type": "text", "text": text})
 	}
-	for _, id := range c.toolOrder {
-		t := c.tools[id]
-		input := json.RawMessage(t.input.String())
-		if !json.Valid(input) {
-			input = json.RawMessage(`{}`)
-		}
+	for _, id := range c.tools.order {
+		t := c.tools.tools[id]
+		input := json.RawMessage(t.arguments())
 		name := t.name
 		if original, ok := conv.ToolNames[name]; ok {
 			name = original
 		}
 		content = append(content, map[string]any{"type": "tool_use", "id": id, "name": name, "input": input})
 	}
-	// Same precedence as sseStream.finish.
-	stop := "end_turn"
-	switch {
-	case c.maxTokens:
-		stop = "max_tokens"
-	case c.contextFull:
-		stop = "model_context_window_exceeded"
-	case thinking != "" && text == "" && len(c.toolOrder) == 0:
-		// A thinking-only answer means Kiro stopped before the visible reply.
-		stop = "max_tokens"
-	case len(c.toolOrder) > 0:
-		stop = "tool_use"
+	stop := c.completionReason(len(c.tools.order) > 0)
+	var output tokenEstimate
+	output.add(c.text.String() + c.reasoning.String())
+	for _, id := range c.tools.order {
+		output.add(c.tools.tools[id].input.String())
 	}
 	out, _ := json.Marshal(map[string]any{
 		"id": "msg_" + strings.ReplaceAll(newUUID(), "-", ""), "type": "message", "role": "assistant",
 		"model": conv.ModelID, "content": content, "stop_reason": stop, "stop_sequence": nil,
-		"usage": usageFields(c.usage, conv.InputTokens, estimateTokens(text+thinking)),
+		"usage": usageFields(c.usage, conv.InputTokens, output.tokens()),
 	})
 	return out
 }

@@ -166,7 +166,7 @@ func TestExecuteNonStreamStopReasons(t *testing.T) {
 	}{
 		{"context full", kiroBody(eventFrame("assistantResponseEvent", `{"content":"x"}`),
 			eventFrame("contextUsageEvent", `{"contextUsagePercentage":100}`)), "model_context_window_exceeded"},
-		{"thinking only", eventFrame("reasoningContentEvent", `{"text":"plan"}`), "max_tokens"},
+		{"thinking only", eventFrame("reasoningContentEvent", `{"text":"plan"}`), "end_turn"},
 	}
 	for _, tc := range cases {
 		stubHTTP(t, func(hostapi.HTTPRequest) (*hostapi.HTTPResponse, error) {

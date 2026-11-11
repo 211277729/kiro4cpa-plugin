@@ -27,3 +27,17 @@ func estimateRequestTokens(r claudeRequest) int {
 	}
 	return total
 }
+
+// tokenEstimate rounds once over all fragments, so chunk sizes cannot inflate usage.
+type tokenEstimate struct{ cjk, other int }
+
+func (e *tokenEstimate) add(s string) {
+	for _, r := range s {
+		if r >= 0x4E00 && r <= 0x9FFF {
+			e.cjk++
+		} else {
+			e.other++
+		}
+	}
+}
+func (e *tokenEstimate) tokens() int { return max(1, (e.cjk*2+2)/3+(e.other+3)/4) }

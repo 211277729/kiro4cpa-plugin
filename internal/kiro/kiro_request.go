@@ -3,8 +3,9 @@ package kiro
 import "encoding/json"
 
 type kiroPayload struct {
-	ConversationState conversationState `json:"conversationState"`
-	ProfileArn        string            `json:"profileArn,omitempty"`
+	ConversationState            conversationState             `json:"conversationState"`
+	ProfileArn                   string                        `json:"profileArn,omitempty"`
+	AdditionalModelRequestFields *additionalModelRequestFields `json:"additionalModelRequestFields,omitempty"`
 }
 
 type conversationState struct {
@@ -83,4 +84,13 @@ type kiroToolSpec struct {
 	InputSchema struct {
 		JSON json.RawMessage `json:"json"`
 	} `json:"inputSchema"`
+}
+
+// Kiro uses camelCase for the outer container and snake_case for output_config.
+type additionalModelRequestFields struct {
+	OutputConfig *reasoningConfig `json:"output_config,omitempty"`
+	Reasoning    *reasoningConfig `json:"reasoning,omitempty"`
+}
+type reasoningConfig struct {
+	Effort string `json:"effort"`
 }

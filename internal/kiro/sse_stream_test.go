@@ -61,14 +61,14 @@ func TestSSEThinkingTextAndTool(t *testing.T) {
 	}
 }
 
-func TestSSEThinkingOnlyIsMaxTokens(t *testing.T) {
+func TestSSEThinkingOnlyDoesNotInventTruncation(t *testing.T) {
 	out := runSSE(convertedRequest{Thinking: true}, Event{Assistant: &AssistantResponseEvent{Content: "<thinking>still going"}})
 	want := "message_start content_block_start:thinking content_block_delta:thinking_delta content_block_stop " +
-		"content_block_start:text content_block_delta:text_delta content_block_stop message_delta message_stop"
+		"message_delta message_stop"
 	if got := eventNames(out); got != want {
 		t.Fatalf("got  %s\nwant %s", got, want)
 	}
-	if out[len(out)-2].data["delta"].(map[string]any)["stop_reason"] != "max_tokens" {
+	if out[len(out)-2].data["delta"].(map[string]any)["stop_reason"] != "end_turn" {
 		t.Fatalf("stop %v", out[len(out)-2].data)
 	}
 }
