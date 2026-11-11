@@ -1,39 +1,51 @@
 package kiro
 
 import (
+	"encoding/json"
 	"strings"
 
 	"github.com/AkkunYo/kiro4cpa-plugin/internal/models"
 	"github.com/router-for-me/CLIProxyAPI/v8/sdk/pluginapi"
 )
 
-// withoutGlobalExclusions drops the models disabled in CPA's global
-// oauth-excluded-models list. CPA lets a credential's own excluded_models
-// replace that list, so a credential with one private exclusion would
-// otherwise republish every globally disabled model. Filtering here makes the
-// global list always apply, with the credential's list added on top by CPA.
-func withoutGlobalExclusions(infos []pluginapi.ModelInfo, host pluginapi.HostConfigSummary) []pluginapi.ModelInfo {
-	var patterns []string
-	for provider, rules := range host.ExcludedModels {
+// CPA filters source IDs before applying aliases, but the official panel saves
+// selections from the already aliased account catalogue. Match both namespaces
+// before publication so an excluded alias cannot route back to this account.
+// Global rules remain additive to this account's own exclusions.
+func withoutModelExclusions(infos []pluginapi.ModelInfo, req pluginapi.AuthModelRequest) []pluginapi.ModelInfo {
+	patterns := strings.Split(req.Attributes["excluded_models"], ",")
+	for provider, rules := range req.Host.ExcludedModels {
 		if !strings.EqualFold(strings.TrimSpace(provider), models.ProviderName) {
 			continue
 		}
-		for _, rule := range rules {
-			if p := strings.ToLower(strings.TrimSpace(rule)); p != "" {
-				patterns = append(patterns, p)
-			}
+		patterns = append(patterns, rules...)
+	}
+	active := patterns[:0]
+	for _, rule := range patterns {
+		if p := strings.ToLower(strings.TrimSpace(rule)); p != "" {
+			active = append(active, p)
 		}
 	}
-	if len(patterns) == 0 {
+	if len(active) == 0 {
 		return infos
 	}
+	aliases := effectiveModelAliases(req.Host, req.Attributes)
 	out := make([]pluginapi.ModelInfo, 0, len(infos))
 	for _, info := range infos {
 		id := strings.ToLower(strings.TrimSpace(info.ID))
 		blocked := false
-		for _, p := range patterns {
+		for _, p := range active {
 			if matchWildcard(p, id) {
 				blocked = true
+				break
+			}
+			for _, alias := range aliases[id] {
+				if matchWildcard(p, alias) {
+					blocked = true
+					break
+				}
+			}
+			if blocked {
 				break
 			}
 		}
@@ -42,6 +54,34 @@ func withoutGlobalExclusions(infos []pluginapi.ModelInfo, host pluginapi.HostCon
 		}
 	}
 	return out
+}
+
+// Account mappings override provider mappings by alias, as in CPA's
+// oauthModelAliasesForAuth. Use host routing attributes rather than persisted
+// snapshots, so clearing an exclusion or changing a mapping takes effect.
+func effectiveModelAliases(host pluginapi.HostConfigSummary, attributes map[string]string) map[string][]string {
+	var own []pluginapi.ModelAlias
+	if err := json.Unmarshal([]byte(attributes["model_aliases"]), &own); err != nil {
+		own = nil
+	}
+	var configured []pluginapi.ModelAlias
+	for provider, entries := range host.OAuthModelAlias {
+		if strings.EqualFold(strings.TrimSpace(provider), models.ProviderName) {
+			configured = append(configured, entries...)
+		}
+	}
+	bySource := make(map[string][]string)
+	seen := make(map[string]bool)
+	for _, entry := range append(own, configured...) {
+		name := strings.ToLower(strings.TrimSpace(entry.Name))
+		alias := strings.ToLower(strings.TrimSpace(entry.Alias))
+		if name == "" || alias == "" || name == alias || seen[alias] {
+			continue
+		}
+		seen[alias] = true
+		bySource[name] = append(bySource[name], alias)
+	}
+	return bySource
 }
 
 // matchWildcard mirrors CPA's sdk/cliproxy matchWildcard so a rule hides the
