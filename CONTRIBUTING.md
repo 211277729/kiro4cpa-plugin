@@ -2,7 +2,7 @@
 
 ## Requirements
 
-- Go 1.26.10 or newer (see `toolchain` in `go.mod`)
+- Go 1.26.11 or newer (see `toolchain` in `go.mod`)
 - Node.js 22 or newer for login-page regression tests
 - A C compiler: cgo is required, the plugin is built with `-buildmode=c-shared`
 
