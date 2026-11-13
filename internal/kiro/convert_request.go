@@ -68,7 +68,7 @@ func convertClaudeRequest(raw []byte, cred Credential) (convertedRequest, error)
 	return convertedRequest{
 		Payload:     kiroPayload{ConversationState: state, ProfileArn: streamingProfileARN(cred), AdditionalModelRequestFields: nativeReasoningFields(req, modelID, suffixThinking)},
 		ModelID:     modelID,
-		Thinking:    prefix != "",
+		Thinking:    thinkingEnabled(req, suffixThinking),
 		ToolNames:   toolNames,
 		InputTokens: estimateRequestTokens(req),
 	}, nil
@@ -86,12 +86,14 @@ func trimPrefill(messages []claudeMessage) []claudeMessage {
 
 func thinkingPrefix(req claudeRequest, suffixThinking bool) string {
 	modelID, _ := kiroModelID(req.Model)
+	if nativeReasoningFields(req, modelID, suffixThinking) != nil {
+		return ""
+	}
 	t := req.Thinking
 	if t != nil && t.Type == "disabled" {
 		return ""
 	}
-	enabled := t != nil && (t.Type == "enabled" || t.Type == "adaptive") || suffixThinking
-	if !enabled {
+	if !thinkingEnabled(req, suffixThinking) {
 		return ""
 	}
 	if (t != nil && t.Type == "adaptive") || supportsNativeReasoning(modelID) {
@@ -102,6 +104,13 @@ func thinkingPrefix(req claudeRequest, suffixThinking bool) string {
 		budget = min(t.BudgetTokens, models.MaxThinkingBudget)
 	}
 	return fmt.Sprintf("<thinking_mode>enabled</thinking_mode><max_thinking_length>%d</max_thinking_length>", budget)
+}
+
+func thinkingEnabled(req claudeRequest, suffixThinking bool) bool {
+	if req.Thinking != nil && req.Thinking.Type == "disabled" {
+		return false
+	}
+	return suffixThinking || req.Thinking != nil && (req.Thinking.Type == "enabled" || req.Thinking.Type == "adaptive")
 }
 
 func hasThinkingTags(s string) bool {

@@ -45,7 +45,7 @@ func TestConvertClaudeCodeTurn(t *testing.T) {
 		t.Fatalf("history %+v", st.History)
 	}
 	a := st.History[3].AssistantResponseMessage
-	if a.Content != "<thinking>hm</thinking>" || len(a.ToolUses) != 1 || string(a.ToolUses[0].Input) != `{"p":"a.txt"}` {
+	if a.Content != " " || a.ReasoningContent != nil || len(a.ToolUses) != 1 || string(a.ToolUses[0].Input) != `{"p":"a.txt"}` {
 		t.Fatalf("assistant %+v", a)
 	}
 	cur := st.CurrentMessage.UserInputMessage

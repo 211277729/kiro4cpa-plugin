@@ -214,13 +214,13 @@ func TestOutputEstimateIndependentOfFragments(t *testing.T) {
 	}
 }
 
-func TestReasoningDisabledUsesFallbackOnlyWithoutAnswer(t *testing.T) {
+func TestReasoningDisabledNeverExposesReasoning(t *testing.T) {
 	for _, tc := range []struct {
 		name, text    string
 		tool, refusal bool
 		want          string
 	}{
-		{name: "fallback", want: "reasoning"},
+		{name: "reasoning only"},
 		{name: "visible answer", text: "answer", want: "answer"},
 		{name: "tool answer", tool: true},
 		{name: "refused", refusal: true},

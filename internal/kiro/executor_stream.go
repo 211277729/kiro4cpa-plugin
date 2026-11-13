@@ -22,7 +22,7 @@ func handleExecuteStream(request []byte) ([]byte, error) {
 	}
 	upstream, err := withRefresh(req.refreshTarget(), cred, func(c Credential) (string, error) {
 		return openGenerateStream(req.AuthID, req.HostCallbackID, c, conv, config.Get())
-	})
+	}, conv.dropRejectedReasoning)
 	if err != nil {
 		return upstreamErrorEnvelope(err), nil
 	}

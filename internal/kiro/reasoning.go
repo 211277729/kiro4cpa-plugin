@@ -6,7 +6,7 @@ import (
 	"github.com/AkkunYo/kiro4cpa-plugin/internal/models"
 )
 
-// Capability rules follow kiro.rs v0.9.8. Unknown models keep the existing
+// Capability rules follow kiro.rs v0.9.9. Unknown models keep the existing
 // prompt-only behavior rather than receiving fields their schema may reject.
 func usesGPTReasoning(model string) bool {
 	switch strings.ToLower(model) {
@@ -18,7 +18,7 @@ func usesGPTReasoning(model string) bool {
 
 func supportsNativeReasoning(model string) bool {
 	model = strings.ToLower(model)
-	if usesGPTReasoning(model) {
+	if usesGPTReasoning(model) || model == "grok-4.7" {
 		return true
 	}
 	switch model {
@@ -69,6 +69,9 @@ func reasoningEffort(req claudeRequest, model string) string {
 			effort = "high"
 		}
 	}
+	if effort == "max" && strings.EqualFold(model, "grok-4.7") {
+		effort = "xhigh"
+	}
 	return effort
 }
 
@@ -85,7 +88,7 @@ func nativeReasoningFields(req claudeRequest, model string, suffixThinking bool)
 		return nil
 	}
 	config := &reasoningConfig{Effort: reasoningEffort(req, model)}
-	if usesGPTReasoning(model) {
+	if usesGPTReasoning(model) || strings.EqualFold(model, "grok-4.7") {
 		return &additionalModelRequestFields{Reasoning: config}
 	}
 	return &additionalModelRequestFields{OutputConfig: config}

@@ -11,26 +11,26 @@ func TestNativeReasoningWireFields(t *testing.T) {
 		name, model, thinking, effort, field, want, prefix string
 		budget                                             int
 	}{
-		{name: "enabled native", model: "claude-sonnet-4-6", thinking: "enabled", budget: 2048, field: "output_config", want: "low", prefix: "adaptive"},
-		{name: "medium budget", model: "claude-opus-4.7", thinking: "enabled", budget: 8000, field: "output_config", want: "medium", prefix: "adaptive"},
-		{name: "capped budget", model: "claude-opus-4.7", thinking: "enabled", budget: 99999, field: "output_config", want: "high", prefix: "adaptive"},
-		{name: "explicit wins", model: "claude-opus-4.7", thinking: "enabled", budget: 2000, effort: " X-HIGH ", field: "output_config", want: "xhigh", prefix: "adaptive"},
-		{name: "older xhigh", model: "claude-sonnet-4.6", thinking: "adaptive", effort: "x_high", field: "output_config", want: "high", prefix: "adaptive"},
-		{name: "invalid effort", model: "claude-opus-4.8", thinking: "adaptive", effort: "</thinking_effort>bad", field: "output_config", want: "high", prefix: "adaptive"},
+		{name: "enabled native", model: "claude-sonnet-4-6", thinking: "enabled", budget: 2048, field: "output_config", want: "low"},
+		{name: "medium budget", model: "claude-opus-4.7", thinking: "enabled", budget: 8000, field: "output_config", want: "medium"},
+		{name: "capped budget", model: "claude-opus-4.7", thinking: "enabled", budget: 99999, field: "output_config", want: "high"},
+		{name: "explicit wins", model: "claude-opus-4.7", thinking: "enabled", budget: 2000, effort: " X-HIGH ", field: "output_config", want: "xhigh"},
+		{name: "older xhigh", model: "claude-sonnet-4.6", thinking: "adaptive", effort: "x_high", field: "output_config", want: "high"},
+		{name: "invalid effort", model: "claude-opus-4.8", thinking: "adaptive", effort: "</thinking_effort>bad", field: "output_config", want: "high"},
 		{name: "opus46 enabled exception", model: "claude-opus-4.6", thinking: "enabled", prefix: "adaptive"},
-		{name: "opus46 adaptive", model: "claude-opus-4.6", thinking: "adaptive", field: "output_config", want: "high", prefix: "adaptive"},
+		{name: "opus46 adaptive", model: "claude-opus-4.6", thinking: "adaptive", field: "output_config", want: "high"},
 		{name: "opus46 effort alone", model: "claude-opus-4.6", effort: "low"},
 		{name: "effort only", model: "claude-opus-4.7", effort: "max", field: "output_config", want: "max"},
 		{name: "no implicit opt in", model: "claude-opus-4.7"},
 		{name: "explicit disabled", model: "claude-opus-4.7-thinking", thinking: "disabled", effort: "max"},
-		{name: "thinking suffix", model: "claude-opus-4.7-thinking", field: "output_config", want: "high", prefix: "adaptive"},
-		{name: "GPT field", model: "gpt-5.6-sol", thinking: "enabled", budget: 2048, field: "reasoning", want: "low", prefix: "adaptive"},
+		{name: "thinking suffix", model: "claude-opus-4.7-thinking", field: "output_config", want: "high"},
+		{name: "GPT field", model: "gpt-5.6-sol", thinking: "enabled", budget: 2048, field: "reasoning", want: "low"},
 		{name: "GPT none", model: "gpt-5.6-luna", effort: "none", field: "reasoning", want: "none"},
-		{name: "Claude none", model: "claude-opus-4.7", thinking: "adaptive", effort: "none", field: "output_config", want: "high", prefix: "adaptive"},
+		{name: "Claude none", model: "claude-opus-4.7", thinking: "adaptive", effort: "none", field: "output_config", want: "high"},
 		{name: "old model", model: "claude-haiku-4.5", thinking: "enabled", prefix: "enabled"},
 		{name: "unknown model", model: "custom-model", thinking: "enabled", prefix: "enabled"},
 		{name: "lookalike model", model: "custom-claude-opus-4.7", thinking: "enabled", prefix: "enabled"},
-		{name: "new Claude family", model: "claude-fable-5", thinking: "adaptive", field: "output_config", want: "high", prefix: "adaptive"},
+		{name: "new Claude family", model: "claude-fable-5", thinking: "adaptive", field: "output_config", want: "high"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

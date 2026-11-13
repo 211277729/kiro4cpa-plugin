@@ -36,8 +36,20 @@ type userInputMessage struct {
 }
 
 type assistantMessage struct {
-	Content  string        `json:"content"`
-	ToolUses []kiroToolUse `json:"toolUses,omitempty"`
+	Content          string            `json:"content"`
+	ToolUses         []kiroToolUse     `json:"toolUses,omitempty"`
+	ReasoningContent *historyReasoning `json:"reasoningContent,omitempty"`
+}
+
+// The wire field is a union: exactly one complete signed or redacted block.
+type historyReasoning struct {
+	ReasoningText   *signedReasoning `json:"reasoningText,omitempty"`
+	RedactedContent string           `json:"redactedContent,omitempty"`
+}
+
+type signedReasoning struct {
+	Text      string `json:"text"`
+	Signature string `json:"signature"`
 }
 
 type inputContext struct {

@@ -56,7 +56,7 @@ func handleExecute(request []byte) ([]byte, error) {
 	}
 	resp, err := withRefresh(req.refreshTarget(), cred, func(c Credential) (*hostapi.HTTPResponse, error) {
 		return postGenerate(req.AuthID, req.HostCallbackID, c, conv, config.Get())
-	})
+	}, conv.dropRejectedReasoning)
 	if err != nil {
 		return upstreamErrorEnvelope(err), nil
 	}
@@ -110,7 +110,7 @@ func (r executorRPC) refreshTarget() refreshTarget {
 // and retries. CPA only cools a 401'd credential down, so without this a
 // single-account setup would be unusable until the next scheduled refresh.
 // Concurrent rejections of one credential share a single refresh.
-func withRefresh[T any](target refreshTarget, cred Credential, send func(Credential) (T, error)) (T, error) {
+func withRefresh[T any](target refreshTarget, cred Credential, send func(Credential) (T, error), recoverRequest ...func(error) bool) (T, error) {
 	// A failed disk write can leave CPA holding either the old or the refreshed
 	// credential. Repair either snapshot even when its access token still works.
 	if hasPendingRefreshSave(target.authID, cred) {
@@ -122,6 +122,10 @@ func withRefresh[T any](target refreshTarget, cred Credential, send func(Credent
 		}
 	}
 	resp, err := send(cred)
+	// Protocol recovery and token recovery share the existing one-retry budget.
+	if err != nil && len(recoverRequest) > 0 && recoverRequest[0](err) {
+		return send(cred)
+	}
 	var up *UpstreamError
 	if !errors.As(err, &up) || up.Kind != ErrTokenInvalid || cred.AuthMethod == AuthMethodAPIKey {
 		return resp, err

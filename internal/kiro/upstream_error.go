@@ -19,9 +19,10 @@ const (
 )
 
 type UpstreamError struct {
-	Status int
-	Kind   ErrorKind
-	Body   string
+	Status                   int
+	Kind                     ErrorKind
+	Body                     string
+	ThinkingSignatureInvalid bool
 }
 
 func (e *UpstreamError) Error() string {
@@ -36,7 +37,8 @@ func classifyUpstream(status int, body []byte) *UpstreamError {
 	if len(text) > maxErrorBody {
 		text = text[:maxErrorBody]
 	}
-	return &UpstreamError{Status: status, Kind: kindOf(status, text), Body: text}
+	return &UpstreamError{Status: status, Kind: kindOf(status, text), Body: text,
+		ThinkingSignatureInvalid: status == 400 && isThinkingSignatureInvalid(body)}
 }
 
 func kindOf(status int, body string) ErrorKind {

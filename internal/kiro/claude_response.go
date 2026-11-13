@@ -49,9 +49,6 @@ func (c *responseCollector) message(conv convertedRequest) []byte {
 		thinking, text = extractThinking(text)
 	}
 	if !conv.Thinking {
-		if text == "" && len(c.tools.order) == 0 && c.stopReason != "refusal" {
-			text = thinking
-		}
 		thinking = ""
 	}
 	content := []map[string]any{}
@@ -62,7 +59,7 @@ func (c *responseCollector) message(conv convertedRequest) []byte {
 		}
 		content = append(content, block)
 	}
-	if text != "" || thinking == "" && len(c.tools.order) == 0 {
+	if text != "" {
 		content = append(content, map[string]any{"type": "text", "text": text})
 	}
 	for _, id := range c.tools.order {

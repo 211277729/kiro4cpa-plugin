@@ -84,21 +84,18 @@ func mergeAssistants(messages []claudeMessage, toolNames map[string]string) *ass
 		uses = append(uses, a.ToolUses...)
 	}
 	content := strings.Join(parts, "\n\n")
-	if content == "" && len(uses) > 0 {
+	if content == "" {
 		content = " "
 	}
-	return &assistantMessage{Content: content, ToolUses: uses}
+	return &assistantMessage{Content: content, ToolUses: uses, ReasoningContent: selectHistoryReasoning(messages)}
 }
 
-// convertAssistant re-wraps thinking in <thinking> tags. Kiro rejects an empty
-// assistant content, so a tool-only turn gets a single space.
+// Reasoning never becomes answer text; the merged turn carries its union separately.
 func convertAssistant(m claudeMessage, toolNames map[string]string) assistantMessage {
-	var thinking, text strings.Builder
+	var text strings.Builder
 	var uses []kiroToolUse
 	for _, b := range blocks(m.Content) {
 		switch b.Type {
-		case "thinking":
-			thinking.WriteString(b.Thinking)
 		case "text":
 			text.WriteString(b.Text)
 		case "tool_use":
@@ -113,13 +110,8 @@ func convertAssistant(m claudeMessage, toolNames map[string]string) assistantMes
 		}
 	}
 	content := text.String()
-	switch {
-	case thinking.Len() > 0 && content != "":
-		content = "<thinking>" + thinking.String() + "</thinking>\n\n" + content
-	case thinking.Len() > 0:
-		content = "<thinking>" + thinking.String() + "</thinking>"
-	case content == "" && len(uses) > 0:
+	if content == "" {
 		content = " "
 	}
-	return assistantMessage{Content: content, ToolUses: uses}
+	return assistantMessage{Content: content, ToolUses: uses, ReasoningContent: selectHistoryReasoning([]claudeMessage{m})}
 }

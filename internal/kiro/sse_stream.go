@@ -21,8 +21,6 @@ type sseStream struct {
 	openIdx     int
 	openKind    string
 	signature   string
-	reasoning   strings.Builder
-	hasText     bool
 	tools       toolAccumulator
 	toolBlocks  map[string]*toolBlock
 	toolCursor  int
@@ -77,7 +75,6 @@ func (s *sseStream) handle(ev Event) []sseEvent {
 			if s.conv.Thinking {
 				return s.thinking(t)
 			}
-			s.reasoning.WriteString(t)
 		}
 	case ev.ToolUse != nil:
 		return s.toolUse(*ev.ToolUse)
@@ -102,9 +99,6 @@ func (s *sseStream) finish() []sseEvent {
 	}
 	out := s.drainTools()
 	out = append(out, s.apply(s.parser.flush())...)
-	if !s.conv.Thinking && !s.hasText && len(s.tools.order) == 0 && s.stopReason != "refusal" && s.reasoning.Len() > 0 {
-		out = append(out, s.text(s.reasoning.String())...)
-	}
 	out = append(out, s.closeBlock()...)
 	return append(out,
 		sseEvent{"message_delta", map[string]any{"type": "message_delta",
@@ -132,7 +126,6 @@ func (s *sseStream) apply(segs []segment) []sseEvent {
 }
 
 func (s *sseStream) text(t string) []sseEvent {
-	s.hasText = true
 	var out []sseEvent
 	if s.openKind != "text" {
 		out = s.openBlock("text", map[string]any{"type": "text", "text": ""})

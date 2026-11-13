@@ -194,7 +194,9 @@ Region 默认 `us-east-1`。导入时会校验必填字段，并尝试刷新 OAu
 - 末尾连续 user 消息合并为当前轮次，保留图片和工具结果，不插入虚构的 assistant「OK」。工具描述保留客户端要求，不再默认注入 Write/Edit 强制分块及禁止进度说明的提示；仍执行 Kiro 必需的名称长度、描述长度和 Schema 规范化。
 - 额度的单位为 Credit；月度、免费试用和赠送额度分别显示用量、上限及官方重置／到期时间。官方面板把桶描述用作行标题，因此不在每行追加查询时间，避免标签过长。认证失败、查询失败与额度耗尽分别处理，失败不伪装成零额度。
 - 当前协议转换处理消息、工具定义及结果、Base64 图片和 thinking。`max_tokens`、`temperature`、`top_p`、`top_k`、`stop_sequences`、`tool_choice` 和结构化输出 schema 尚未转发或强制执行，不应依赖这些参数限制输出或强制选用工具。
-- reasoning/effort 适配参考 `ZyphrZero/kiro.rs` v0.9.8：已知支持的 Claude 模型发送 `additionalModelRequestFields.output_config.effort`，GPT 5.6 sol/terra/luna 发送 `reasoning.effort`；未知模型保持提示词适配。显式 effort 优先，否则由 thinking budget 推导；Opus 4.6 仅对显式 adaptive 请求发送原生字段。`thinking: disabled` 优先。上游真实 token usage 优先，本地输出估算按累计字符计算，避免分片数量影响结果。
+- reasoning/effort 适配参考 `ZyphrZero/kiro.rs` v0.9.9：已知支持的 Claude 模型发送 `additionalModelRequestFields.output_config.effort`，GPT 5.6 sol/terra/luna 和 Grok 4.7 发送 `reasoning.effort`；Grok 的 `max` 映射为 `xhigh`；未知模型保持提示词适配。显式 effort 优先，否则由 thinking budget 推导；Opus 4.6 仅对显式 adaptive 请求发送原生字段。`thinking: disabled` 优先。上游真实 token usage 优先，本地输出估算按累计字符计算，避免分片数量影响结果。
+- 实际发送原生 effort 时不再重复注入 thinking 提示；旧模型和 Opus 4.6 enabled 模式保留提示路径。关闭 thinking 后，原生推理不会转为普通正文，即使回复只有推理内容。
+- 历史推理使用独立 `reasoningContent` 字段：一个合并的 assistant 轮次仅回传单个带有效非占位签名的 thinking 块，或单个有效 Base64 redacted 块；多块、不完整或无签名内容省略，正文和工具保留。仅在 HTTP 400 明确返回 `THINKING_SIGNATURE_INVALID` 时移除该字段重试一次，与 Token 刷新共用原有一次重试预算。历史签名回传已通过本地协议测试，尚未用真实 Kiro 凭据验证。
 - Kiro 不支持 assistant prefill，末尾的 assistant 预填消息会被丢弃；图片 URL、document 等未实现的内容类型也不会传给上游。
 
 ## 已知限制
