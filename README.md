@@ -8,6 +8,8 @@
 
 ## 功能
 
+参考基线记录（2026-11-15 核对）：`ZyphrZero/kiro.rs` v0.9.9，提交 `7dfb2c21dea5d2fa3618fdd603279d7fcef89074`；默认分支相对该基线无新增提交。Grok 原生 effort、历史 reasoning 安全回传、签名拒绝重试与关闭推理保护已包含在本项目源码中，本次无需追加上游逻辑变更。
+
 - 浏览器内选择登录方式：Builder ID、Google / GitHub、IAM Identity Center，或导入 Refresh Token / API Key
 - 凭据类型：Social（Google / GitHub）、IdC（Builder ID / IAM Identity Center）、External IdP（Entra ID 等）、API Key
 - 登录后读取账号邮箱，凭据文件按账号命名；同一账号再次登录会覆盖原文件，不会出现重复账号

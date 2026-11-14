@@ -8,6 +8,8 @@ A Kiro provider plugin for [CLIProxyAPI](https://github.com/router-for-me/CLIPro
 
 ## Features
 
+Reference baseline checked on 2026-11-15: `ZyphrZero/kiro.rs` v0.9.9, commit `7dfb2c21dea5d2fa3618fdd603279d7fcef89074`. Its default branch has no additional commits. This project's source already includes native Grok effort, safe reasoning history, signature rejection recovery and disabled-reasoning safeguards; no further upstream logic changes are needed for this check.
+
 - Pick a sign-in method in the browser: Builder ID, Google / GitHub, IAM Identity Center, or import a refresh token / API key
 - Credential types: Social (Google / GitHub), IdC (Builder ID / IAM Identity Center), External IdP (Entra ID and similar), API Key
 - Reads the account email after sign-in and names the credential file after the account; signing in to the same account again overwrites that file instead of adding a duplicate
