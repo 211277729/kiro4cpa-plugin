@@ -48,10 +48,10 @@ func getRegistration() registration {
 	return registration{
 		SchemaVersion: pluginabi.SchemaVersion,
 		Metadata: pluginapi.Metadata{
-			Name:             "Kiro",
+			Name:             "New Kiro OAuth2",
 			Version:          Version,
-			Author:           "AkkunYo",
-			GitHubRepository: "https://github.com/AkkunYo/kiro4cpa-plugin",
+			Author:           "xiaoyugan",
+			GitHubRepository: "https://github.com/211277729/kiro4cpa-plugin",
 			Logo:             logoDataURI(),
 			ConfigFields: []pluginapi.ConfigField{
 				{Name: "enabled", Type: pluginapi.ConfigFieldTypeBoolean, Description: "Enable Kiro plugin"},

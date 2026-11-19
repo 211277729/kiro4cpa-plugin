@@ -43,6 +43,13 @@ type TokenUsage struct {
 	CacheWriteInputTokens int64 `json:"cacheWriteInputTokens"`
 }
 
+// hasCounts reports whether the object carried any real count. An all-zero
+// tokenUsage is not worth treating as upstream data.
+func (u TokenUsage) hasCounts() bool {
+	return u.UncachedInputTokens > 0 || u.OutputTokens > 0 ||
+		u.CacheReadInputTokens > 0 || u.CacheWriteInputTokens > 0
+}
+
 type MetadataEvent struct {
 	TokenUsage *TokenUsage `json:"tokenUsage,omitempty"`
 	StopReason string      `json:"stopReason,omitempty"`
@@ -134,6 +141,13 @@ func DecodeEvent(f Frame) (Event, error) {
 		ev.Metadata = &MetadataEvent{}
 		target = ev.Metadata
 	default:
+		// The frame name is not a reliable contract: upstream has used more than
+		// one name for the same payload and adds names over time. Any unmodeled
+		// frame that carries tokenUsage is still the usage frame, so decode it
+		// rather than dropping the counts and falling back to an estimate.
+		if usage, ok := tokenUsageFromUnknownFrame(f.Payload); ok {
+			return Event{Metadata: &MetadataEvent{TokenUsage: usage}}, nil
+		}
 		debugUnknownEvent(f.EventType())
 		return Event{}, nil
 	}
@@ -151,6 +165,45 @@ var (
 	loggedEventTypesMu sync.Mutex
 	loggedEventTypes   = make(map[string]struct{})
 )
+
+// tokenUsageFromUnknownFrame searches an unmodeled frame for a tokenUsage object
+// at any depth. Upstream wraps the payload differently across deployments, and
+// the counts are the part that must not be lost: dropping them silently forces
+// every usage report back to a local estimate.
+func tokenUsageFromUnknownFrame(payload []byte) (*TokenUsage, bool) {
+	var doc any
+	if err := json.Unmarshal(payload, &doc); err != nil {
+		return nil, false
+	}
+	return findTokenUsage(doc, 0)
+}
+
+func findTokenUsage(node any, depth int) (*TokenUsage, bool) {
+	if depth > 4 {
+		return nil, false
+	}
+	object, ok := node.(map[string]any)
+	if !ok {
+		return nil, false
+	}
+	if raw, ok := object["tokenUsage"]; ok {
+		encoded, errMarshal := json.Marshal(raw)
+		if errMarshal == nil {
+			var usage TokenUsage
+			if errUnmarshal := json.Unmarshal(encoded, &usage); errUnmarshal == nil {
+				if usage.hasCounts() {
+					return &usage, true
+				}
+			}
+		}
+	}
+	for _, value := range object {
+		if usage, found := findTokenUsage(value, depth+1); found {
+			return usage, true
+		}
+	}
+	return nil, false
+}
 
 func debugUnknownEvent(eventType string) {
 	if eventType == "" {

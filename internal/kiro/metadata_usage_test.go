@@ -46,6 +46,14 @@ func TestMetadataEventNamesCarryUsage(t *testing.T) {
 			`{"messageMetadataEvent":` + flatTokenUsage + `}`},
 		{"metadataEvent nested", "metadataEvent",
 			`{"metadataEvent":` + flatTokenUsage + `}`},
+		// The frame name is not a contract. Any unmodeled frame that carries the
+		// counts must still be honored, otherwise usage silently becomes an
+		// estimate and cache reads report zero.
+		{"unknown frame name flat", "someFutureEventType", flatTokenUsage},
+		{"unknown frame name nested", "someFutureEventType",
+			`{"someFutureEventType":` + flatTokenUsage + `}`},
+		{"unknown frame name deep", "usageSummaryEvent",
+			`{"usageSummaryEvent":{"result":{"tokenUsage":{"uncachedInputTokens":11,"outputTokens":7,"cacheReadInputTokens":5,"cacheWriteInputTokens":3}}}}`},
 	}
 	for _, tc := range cases {
 		usage := usageForEventType(t, tc.eventType, tc.payload)
