@@ -9,6 +9,12 @@ type responseState struct {
 	nativeStop  string
 	contextFull bool
 	streamErr   *StreamError
+	// credits is the metered spend Amazon Q reports for this turn. It is the
+	// only authoritative number the service sends: token counts are never
+	// itemized, so usage is derived from this value.
+	credits       float64
+	creditsUnit   string
+	sawCredits    bool
 }
 
 func (s *responseState) observe(ev Event) {
@@ -22,6 +28,13 @@ func (s *responseState) observe(ev Event) {
 			if s.nativeStop == "CONTENT_FILTERED" {
 				s.stopReason = "refusal"
 			}
+		}
+	case ev.Metering != nil:
+		// Later metering frames supersede earlier ones for the same turn.
+		if ev.Metering.Usage > 0 {
+			s.credits = ev.Metering.Usage
+			s.creditsUnit = strings.ToLower(strings.TrimSpace(ev.Metering.Unit))
+			s.sawCredits = true
 		}
 	case ev.ContextUsage != nil:
 		s.contextFull = s.contextFull || ev.ContextUsage.ContextUsagePercentage >= 100

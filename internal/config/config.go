@@ -2,6 +2,9 @@ package config
 
 import (
 	"fmt"
+	"sort"
+	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -18,6 +21,22 @@ type PluginConfig struct {
 	MinTokenInterval string `yaml:"min_token_interval"`
 	MaxTokenInterval string `yaml:"max_token_interval"`
 	SuspendCooldown  string `yaml:"suspend_cooldown"`
+	// Usage accounting. Amazon Q reports spend in credits and never sends token
+	// counts, so usage has to be derived. Empty values keep the defaults.
+	//
+	// UsageMode selects the source: "estimate" keeps the local character
+	// heuristic, "credit" derives tokens from the metered credit spend, and
+	// "off" reports the estimate without cache attribution.
+	UsageMode string `yaml:"usage_mode"`
+	// CreditRates maps a model (or "*" for all) to the credits billed per
+	// token. An entry may be a single number (input rate, output priced the
+	// same) or a mapping with input/output. A longer, exact model name wins
+	// over a wildcard.
+	CreditRates map[string]RateSpec `yaml:"credit_rates"`
+	// CacheReadRatio is the fraction of the input rate a cached input token is
+	// billed at. Upstream does not itemize cached tokens, so the plugin splits
+	// credit spend between fresh and cached input using this ratio.
+	CacheReadRatio string `yaml:"cache_read_ratio"`
 }
 
 var defaults = PluginConfig{
@@ -29,6 +48,55 @@ var defaults = PluginConfig{
 	MinTokenInterval: "1s",
 	MaxTokenInterval: "2s",
 	SuspendCooldown:  "1h",
+	UsageMode:        "credit",
+	// Measured against the live service on 2026-11-19, in credits per token,
+	// with 1000 credits = $20. Re-measure if Kiro changes its pricing.
+	CreditRates: map[string]RateSpec{
+		"*":              {Input: "4.24e-6", Output: "4.24e-6"},
+		"claude-haiku*":  {Input: "4.39e-6", Output: "1.29e-5"},
+		"claude-sonnet*": {Input: "3.53e-5", Output: "2.87e-4"},
+		"claude-opus*":   {Input: "5.13e-5", Output: "4.48e-4"},
+	},
+	CacheReadRatio: "0.10",
+}
+
+// RateSpec is one credits-per-token entry. A bare YAML scalar sets Input and
+// prices output the same, so a single-rate config keeps working.
+type RateSpec struct {
+	Input  string
+	Output string
+}
+
+// UnmarshalYAML accepts either `4.24e-6` or `{input: 3.53e-5, output: 2.87e-4}`.
+func (r *RateSpec) UnmarshalYAML(node *yaml.Node) error {
+	if node.Kind == yaml.ScalarNode {
+		r.Input, r.Output = node.Value, node.Value
+		return nil
+	}
+	var raw struct {
+		Input  string `yaml:"input"`
+		Output string `yaml:"output"`
+	}
+	if err := node.Decode(&raw); err != nil {
+		return err
+	}
+	r.Input, r.Output = raw.Input, raw.Output
+	if r.Output == "" {
+		r.Output = r.Input
+	}
+	return nil
+}
+
+// MarshalYAML writes the compact scalar form when both rates agree, so a saved
+// config stays readable.
+func (r RateSpec) MarshalYAML() (any, error) {
+	if r.Output == "" || r.Output == r.Input {
+		return r.Input, nil
+	}
+	return struct {
+		Input  string `yaml:"input"`
+		Output string `yaml:"output"`
+	}{r.Input, r.Output}, nil
 }
 
 var (
@@ -56,6 +124,9 @@ func UpdateFromYAML(raw []byte) error {
 	// A rejected block keeps the previous configuration; failing here surfaces
 	// the typo in CPA's log instead of silently pacing with something else.
 	if _, err := cfg.Durations(); err != nil {
+		return err
+	}
+	if _, err := cfg.Usage(); err != nil {
 		return err
 	}
 	cfgLock.Lock()
@@ -86,7 +157,126 @@ func (c PluginConfig) withDefaults() PluginConfig {
 	if c.SuspendCooldown == "" {
 		c.SuspendCooldown = defaults.SuspendCooldown
 	}
+	if c.UsageMode == "" {
+		c.UsageMode = defaults.UsageMode
+	}
+	if len(c.CreditRates) == 0 {
+		c.CreditRates = defaults.CreditRates
+	}
+	if c.CacheReadRatio == "" {
+		c.CacheReadRatio = defaults.CacheReadRatio
+	}
 	return c
+}
+
+// DefaultUsageSettings returns the shipped usage accounting configuration. It is
+// the fallback for callers whose parsed settings were rejected.
+func DefaultUsageSettings() UsageSettings {
+	settings, _ := PluginConfig{}.withUsageDefaults().Usage()
+	return settings
+}
+
+// withUsageDefaults fills only the usage accounting fields, so a caller whose
+// parse failed can still fall back to the shipped rates.
+func (c PluginConfig) withUsageDefaults() PluginConfig {
+	if c.UsageMode == "" {
+		c.UsageMode = defaults.UsageMode
+	}
+	if len(c.CreditRates) == 0 {
+		c.CreditRates = defaults.CreditRates
+	}
+	if c.CacheReadRatio == "" {
+		c.CacheReadRatio = defaults.CacheReadRatio
+	}
+	return c
+}
+
+// UsageSettings carries the parsed usage accounting configuration.
+type UsageSettings struct {
+	Mode           string
+	CreditRates    []ModelCreditRate
+	CacheReadRatio float64
+}
+
+// ModelCreditRate is one credits-per-token entry; Pattern may end in "*".
+type ModelCreditRate struct {
+	Pattern string
+	// Input and Output are credits per token. They differ: the service bills an
+	// output token around eight times an input token.
+	Input  float64
+	Output float64
+}
+
+// Usage parses the usage accounting settings, reporting the first invalid value.
+func (c PluginConfig) Usage() (UsageSettings, error) {
+	mode := strings.ToLower(strings.TrimSpace(c.UsageMode))
+	switch mode {
+	case "estimate", "credit", "off":
+	case "":
+		mode = "credit"
+	default:
+		return UsageSettings{}, fmt.Errorf("usage_mode must be estimate, credit or off, got %q", c.UsageMode)
+	}
+	rates := make([]ModelCreditRate, 0, len(c.CreditRates))
+	for pattern, raw := range c.CreditRates {
+		input, err := strconv.ParseFloat(strings.TrimSpace(raw.Input), 64)
+		if err != nil || input <= 0 {
+			return UsageSettings{}, fmt.Errorf("credit_rates[%q] input must be a positive number, got %q", pattern, raw.Input)
+		}
+		output := input
+		if raw.Output != "" {
+			output, err = strconv.ParseFloat(strings.TrimSpace(raw.Output), 64)
+			if err != nil || output <= 0 {
+				return UsageSettings{}, fmt.Errorf("credit_rates[%q] output must be a positive number, got %q", pattern, raw.Output)
+			}
+		}
+		rates = append(rates, ModelCreditRate{Pattern: strings.TrimSpace(pattern), Input: input, Output: output})
+	}
+	// Longest pattern first so an exact name beats a wildcard, and a wildcard
+	// named "*" is consulted last.
+	sort.Slice(rates, func(i, j int) bool {
+		if rates[i].Pattern == "*" {
+			return false
+		}
+		if rates[j].Pattern == "*" {
+			return true
+		}
+		return len(rates[i].Pattern) > len(rates[j].Pattern)
+	})
+	ratio, err := strconv.ParseFloat(strings.TrimSpace(c.CacheReadRatio), 64)
+	if err != nil || ratio < 0 || ratio > 1 {
+		return UsageSettings{}, fmt.Errorf("cache_read_ratio must be between 0 and 1, got %q", c.CacheReadRatio)
+	}
+	return UsageSettings{
+		Mode:           mode,
+		CreditRates:    rates,
+		CacheReadRatio: ratio,
+	}, nil
+}
+
+// CreditRateFor resolves the credits-per-token entry for one model.
+func (s UsageSettings) CreditRateFor(model string) (ModelCreditRate, bool) {
+	lowered := strings.ToLower(model)
+	for _, entry := range s.CreditRates {
+		if entry.Pattern == "*" {
+			continue
+		}
+		if pattern := strings.ToLower(entry.Pattern); strings.HasSuffix(pattern, "*") {
+			if strings.HasPrefix(lowered, strings.TrimSuffix(pattern, "*")) {
+				return entry, true
+			}
+			continue
+		}
+		if strings.EqualFold(entry.Pattern, model) {
+			return entry, true
+		}
+	}
+	for _, entry := range s.CreditRates {
+		if entry.Pattern == "*" {
+			return entry, true
+		}
+	}
+	return ModelCreditRate{}, false
 }
 
 // Pacing carries the parsed per-credential limits.

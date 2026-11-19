@@ -103,7 +103,7 @@ func (s *sseStream) finish() []sseEvent {
 	return append(out,
 		sseEvent{"message_delta", map[string]any{"type": "message_delta",
 			"delta": map[string]any{"stop_reason": s.completionReason(len(s.tools.order) > 0), "stop_sequence": nil},
-			"usage": usageFields(s.usage, s.conv.InputTokens, s.output.tokens())}},
+			"usage": usageFieldsFromState(&s.responseState, s.conv.ModelID, s.conv.InputTokens, s.output.tokens())}},
 		sseEvent{"message_stop", map[string]any{"type": "message_stop"}},
 	)
 }

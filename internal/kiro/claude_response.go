@@ -80,21 +80,42 @@ func (c *responseCollector) message(conv convertedRequest) []byte {
 	out, _ := json.Marshal(map[string]any{
 		"id": "msg_" + strings.ReplaceAll(newUUID(), "-", ""), "type": "message", "role": "assistant",
 		"model": conv.ModelID, "content": content, "stop_reason": stop, "stop_sequence": nil,
-		"usage": usageFields(c.usage, conv.InputTokens, output.tokens()),
+		"usage": usageFieldsFromState(&c.responseState, conv.ModelID, conv.InputTokens, output.tokens()),
 	})
 	return out
 }
 
-// usageFields prefers Kiro's real token counts; input_tokens excludes cached
-// tokens, matching Anthropic's usage semantics.
-func usageFields(u *TokenUsage, estimatedInput, estimatedOutput int) map[string]int64 {
-	if u != nil {
-		return map[string]int64{
-			"input_tokens":                max(u.UncachedInputTokens, 0),
-			"output_tokens":               max(u.OutputTokens, 0),
-			"cache_read_input_tokens":     max(u.CacheReadInputTokens, 0),
-			"cache_creation_input_tokens": max(u.CacheWriteInputTokens, 0),
-		}
+// usageFieldsFromState reports usage for one turn, preferring a real upstream
+// report and otherwise deriving tokens from the metered credit spend.
+func usageFieldsFromState(state *responseState, model string, estimatedInput, estimatedOutput int) map[string]int64 {
+	var upstream *TokenUsage
+	var credits float64
+	var sawCredits bool
+	if state != nil {
+		upstream = state.usage
+		credits = state.credits
+		sawCredits = state.sawCredits
 	}
-	return map[string]int64{"input_tokens": int64(estimatedInput), "output_tokens": int64(estimatedOutput)}
+	result := newUsageAccounting().apply(UsageInput{
+		Model:           model,
+		EstimatedInput:  estimatedInput,
+		EstimatedOutput: estimatedOutput,
+		Credits:         credits,
+		SawCredits:      sawCredits,
+		Upstream:        upstream,
+	})
+	logUsageCalibration(model, estimatedInput, estimatedOutput, credits, sawCredits, result)
+	fields := map[string]int64{
+		"input_tokens":  result.InputTokens,
+		"output_tokens": result.OutputTokens,
+	}
+	// Only send the cache fields when they carry a value: some clients treat a
+	// present-but-zero field differently from an absent one.
+	if result.CacheReadInputTokens > 0 {
+		fields["cache_read_input_tokens"] = result.CacheReadInputTokens
+	}
+	if result.CacheCreationInputTokens > 0 {
+		fields["cache_creation_input_tokens"] = result.CacheCreationInputTokens
+	}
+	return fields
 }

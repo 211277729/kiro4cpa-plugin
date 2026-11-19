@@ -62,6 +62,12 @@ func getRegistration() registration {
 				{Name: "min_token_interval", Type: pluginapi.ConfigFieldTypeString, Description: "Minimum delay between requests for one credential, e.g. 1s"},
 				{Name: "max_token_interval", Type: pluginapi.ConfigFieldTypeString, Description: "Upper bound of the per-credential request gap, e.g. 2s"},
 				{Name: "suspend_cooldown", Type: pluginapi.ConfigFieldTypeString, Description: "How long a credential Kiro reports as suspended stays out of rotation, e.g. 1h"},
+				{Name: "usage_mode", Type: pluginapi.ConfigFieldTypeEnum, Default: "credit", EnumValues: []string{"credit", "estimate", "off"},
+					Description: "How usage is reported. credit derives tokens (and cache reads) from the metered credit spend; estimate keeps the local character heuristic; off reports the estimate with no cache attribution"},
+				{Name: "credit_rates", Type: pluginapi.ConfigFieldTypeObject,
+					Description: "Credits billed per token, per model pattern. Either a number (input and output priced the same) or {input, output}. Exact names win over wildcards, and \"*\" is the fallback. Measured defaults: sonnet {input: 3.53e-5, output: 2.87e-4}, opus {input: 5.13e-5, output: 4.48e-4}, haiku {input: 4.39e-6, output: 1.29e-5}"},
+				{Name: "cache_read_ratio", Type: pluginapi.ConfigFieldTypeString, Default: "0.10",
+					Description: "Fraction of the input rate a cached token is billed at. Measured: sonnet 25%, opus 10%, haiku 11%; 0.10 is the conservative default"},
 			},
 		},
 		Capabilities: registrationCapability{

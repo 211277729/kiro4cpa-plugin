@@ -177,9 +177,10 @@ var (
 // answers stay readable.
 //
 // The host redirects the global standard logger without including plugin output,
-// so tracing writes to its own file instead of log.Printf.
+// so tracing writes to its own file instead of log.Printf. This is a diagnostic
+// switch only: it writes one line per frame, so leave it off on a busy gateway.
 func traceFrame(f Frame) {
-	path, enabled := traceFramesPath()
+	path, enabled := traceFramesFilePath()
 	if !enabled {
 		return
 	}
@@ -187,8 +188,13 @@ func traceFrame(f Frame) {
 	if len(payload) > 320 {
 		payload = payload[:320]
 	}
-	line := fmt.Sprintf("%s type=%q message=%q payload=%s\n",
-		time.Now().Format(time.RFC3339), f.EventType(), f.MessageType(), payload)
+	writeLogLine(path, fmt.Sprintf("%s type=%q message=%q payload=%s\n",
+		time.Now().Format(time.RFC3339), f.EventType(), f.MessageType(), payload))
+}
+
+// writeLogLine appends one already-formatted line to a log file. Failures are
+// silent: a diagnostic must never break a request.
+func writeLogLine(path, line string) {
 	traceMu.Lock()
 	defer traceMu.Unlock()
 	file, errOpen := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
@@ -205,22 +211,39 @@ var (
 		path    string
 		enabled bool
 	}
+	usageLogOnce struct {
+		sync.Once
+		path    string
+		enabled bool
+	}
 	traceMu sync.Mutex
 )
 
-func traceFramesPath() (string, bool) {
+// traceFramesPath resolves a diagnostic file from an environment variable. A
+// value of "1" means the default name in the temp directory.
+func traceFramesPath(envVar, defaultName string) (string, bool) {
+	value := strings.TrimSpace(os.Getenv(envVar))
+	if value == "" || value == "0" {
+		return "", false
+	}
+	if value == "1" {
+		value = filepath.Join(os.TempDir(), defaultName)
+	}
+	return value, true
+}
+
+func traceFramesFilePath() (string, bool) {
 	traceFramesOnce.Do(func() {
-		value := strings.TrimSpace(os.Getenv("KIRO_TRACE_FRAMES"))
-		if value == "" || value == "0" {
-			return
-		}
-		if value == "1" {
-			value = filepath.Join(os.TempDir(), "kiro-frames.log")
-		}
-		traceFramesOnce.path = value
-		traceFramesOnce.enabled = true
+		traceFramesOnce.path, traceFramesOnce.enabled = traceFramesPath("KIRO_TRACE_FRAMES", "kiro-frames.log")
 	})
 	return traceFramesOnce.path, traceFramesOnce.enabled
+}
+
+func usageLogFilePath() (string, bool) {
+	usageLogOnce.Do(func() {
+		usageLogOnce.path, usageLogOnce.enabled = traceFramesPath("KIRO_USAGE_LOG", "kiro-usage.log")
+	})
+	return usageLogOnce.path, usageLogOnce.enabled
 }
 
 // tokenUsageFromUnknownFrame searches an unmodeled frame for a tokenUsage object
