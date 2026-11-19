@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"os"
+	"strings"
 	"sync"
 )
 
@@ -165,6 +167,35 @@ var (
 	loggedEventTypesMu sync.Mutex
 	loggedEventTypes   = make(map[string]struct{})
 )
+
+// traceFrame logs every upstream frame this process receives. Upstream usage
+// frames have arrived under names the plugin did not model, and the only way to
+// settle which frame carries the counts is to look at the wire. Set
+// KIRO_TRACE_FRAMES=1 to enable; the payload is truncated so large answers stay
+// readable in a log.
+func traceFrame(f Frame) {
+	if !traceFramesEnabled() {
+		return
+	}
+	payload := f.Payload
+	if len(payload) > 320 {
+		payload = payload[:320]
+	}
+	log.Printf("kiro4cpa: frame type=%q message=%q payload=%s",
+		f.EventType(), f.MessageType(), string(payload))
+}
+
+var traceFramesOnce struct {
+	sync.Once
+	enabled bool
+}
+
+func traceFramesEnabled() bool {
+	traceFramesOnce.Do(func() {
+		traceFramesOnce.enabled = strings.TrimSpace(os.Getenv("KIRO_TRACE_FRAMES")) == "1"
+	})
+	return traceFramesOnce.enabled
+}
 
 // tokenUsageFromUnknownFrame searches an unmodeled frame for a tokenUsage object
 // at any depth. Upstream wraps the payload differently across deployments, and

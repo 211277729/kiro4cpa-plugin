@@ -93,6 +93,7 @@ func pumpStream(upstream, streamID string, conv convertedRequest) {
 			return
 		}
 		for _, f := range dec.Feed(chunk.Payload) {
+			traceFrame(f)
 			ev, errEv := DecodeEvent(f)
 			if errEv != nil {
 				finish(errEv.Error())

@@ -63,6 +63,7 @@ func handleExecute(request []byte) ([]byte, error) {
 	var collector responseCollector
 	var dec Decoder
 	for _, f := range dec.Feed(resp.Body) {
+		traceFrame(f)
 		ev, errEv := DecodeEvent(f)
 		if errEv != nil {
 			return wire.ErrorStatus("upstream_stream_error", errEv.Error(), http.StatusBadGateway, true), nil
