@@ -11,12 +11,14 @@ import (
 
 // usageForEventType drives one non-stream call whose upstream emits a single
 // usage frame under eventType and returns the usage object the plugin reports.
-func usageForEventType(t *testing.T, eventType string) map[string]int {
+// payload is the frame body, so callers can exercise the flat and the
+// frame-named (nested) shapes the same way upstream ships them.
+func usageForEventType(t *testing.T, eventType, payload string) map[string]int {
 	t.Helper()
 	stubHTTP(t, func(hostapi.HTTPRequest) (*hostapi.HTTPResponse, error) {
 		return &hostapi.HTTPResponse{StatusCode: 200, Body: kiroBody(
 			eventFrame("assistantResponseEvent", `{"content":"Hi"}`),
-			eventFrame(eventType, `{"tokenUsage":{"uncachedInputTokens":11,"outputTokens":7,"cacheReadInputTokens":5,"cacheWriteInputTokens":3}}`),
+			eventFrame(eventType, payload),
 		)}, nil
 	})
 	resp := callHandler[pluginapi.ExecutorResponse](t, pluginabi.MethodExecutorExecute,
@@ -30,15 +32,26 @@ func usageForEventType(t *testing.T, eventType string) map[string]int {
 	return msg.Usage
 }
 
-// TestMetadataEventNamesCarryUsage covers both frame names upstream has used for
-// the token usage payload. Accepting only metadataEvent reported every cache
-// count as zero, because usage fell back to a local estimate.
+const flatTokenUsage = `{"tokenUsage":{"uncachedInputTokens":11,"outputTokens":7,"cacheReadInputTokens":5,"cacheWriteInputTokens":3}}`
+
+// TestMetadataEventNamesCarryUsage covers every frame name and payload shape the
+// plugin must decode. Amazon Q ships the metadata either flat or wrapped in a
+// frame-named object; a flat-only decode reported every cache count as zero
+// because usage fell back to a local estimate.
 func TestMetadataEventNamesCarryUsage(t *testing.T) {
-	for _, eventType := range []string{"metadataEvent", "messageMetadataEvent"} {
-		usage := usageForEventType(t, eventType)
+	cases := []struct{ name, eventType, payload string }{
+		{"metadataEvent flat", "metadataEvent", flatTokenUsage},
+		{"messageMetadataEvent flat", "messageMetadataEvent", flatTokenUsage},
+		{"messageMetadataEvent nested", "messageMetadataEvent",
+			`{"messageMetadataEvent":` + flatTokenUsage + `}`},
+		{"metadataEvent nested", "metadataEvent",
+			`{"metadataEvent":` + flatTokenUsage + `}`},
+	}
+	for _, tc := range cases {
+		usage := usageForEventType(t, tc.eventType, tc.payload)
 		if usage["input_tokens"] != 11 || usage["output_tokens"] != 7 ||
 			usage["cache_read_input_tokens"] != 5 || usage["cache_creation_input_tokens"] != 3 {
-			t.Errorf("%s usage = %v, want real upstream counts", eventType, usage)
+			t.Errorf("%s usage = %v, want real upstream counts", tc.name, usage)
 		}
 	}
 }
@@ -46,7 +59,7 @@ func TestMetadataEventNamesCarryUsage(t *testing.T) {
 // TestUnknownEventTypeKeepsStreamUsable guards the diagnostic path: an event
 // type the plugin does not model must not fail or truncate the answer.
 func TestUnknownEventTypeKeepsStreamUsable(t *testing.T) {
-	usage := usageForEventType(t, "someFutureEventType")
+	usage := usageForEventType(t, "someFutureEventType", flatTokenUsage)
 	if usage == nil {
 		t.Fatal("usage missing when an unknown event type was present")
 	}

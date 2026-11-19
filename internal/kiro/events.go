@@ -48,6 +48,37 @@ type MetadataEvent struct {
 	StopReason string      `json:"stopReason,omitempty"`
 }
 
+// UnmarshalJSON accepts both payload shapes seen in the wild. Amazon Q wraps the
+// metadata in a frame-named object on some deployments, so the tokenUsage object
+// arrived nested one level deeper than the flat decode expected. A flat decode of
+// a wrapped payload found no tokenUsage, left usage nil, and forced every usage
+// report back to a local estimate -- which made cache reads read as zero even on
+// a full cache hit.
+func (m *MetadataEvent) UnmarshalJSON(data []byte) error {
+	var wrapper map[string]json.RawMessage
+	if err := json.Unmarshal(data, &wrapper); err != nil {
+		return err
+	}
+	inner := data
+	for _, name := range []string{"messageMetadataEvent", "metadataEvent"} {
+		if nested, ok := wrapper[name]; ok {
+			inner = nested
+			break
+		}
+	}
+	type plain struct {
+		TokenUsage *TokenUsage `json:"tokenUsage,omitempty"`
+		StopReason string      `json:"stopReason,omitempty"`
+	}
+	var decoded plain
+	if err := json.Unmarshal(inner, &decoded); err != nil {
+		return err
+	}
+	m.TokenUsage = decoded.TokenUsage
+	m.StopReason = decoded.StopReason
+	return nil
+}
+
 // StreamError is an in-band error or exception frame.
 type StreamError struct {
 	Kind    string // "error" or "exception"
