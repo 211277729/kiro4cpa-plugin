@@ -12,9 +12,9 @@ type responseState struct {
 	// credits is the metered spend Amazon Q reports for this turn. It is the
 	// only authoritative number the service sends: token counts are never
 	// itemized, so usage is derived from this value.
-	credits       float64
-	creditsUnit   string
-	sawCredits    bool
+	credits     float64
+	creditsUnit string
+	sawCredits  bool
 }
 
 func (s *responseState) observe(ev Event) {
