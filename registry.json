@@ -3,9 +3,9 @@
   "plugins": [
     {
       "id": "kiro4cpa",
-      "name": "Kiro OAuth",
+      "name": "New Kiro OAuth2",
       "description": "Kiro provider for CLIProxyAPI with a built-in sign-in page (AWS Builder ID, Google/GitHub, IAM Identity Center, credential import), per-account model catalogues, quota reporting, and automatic handling of blocked accounts.",
-      "author": "AkkunYo",
+      "author": "xiaoyugan",
       "repository": "https://github.com/211277729/kiro4cpa-plugin",
       "logo": "https://raw.githubusercontent.com/211277729/kiro4cpa-plugin/main/assets/kiro-logo.svg",
       "homepage": "https://github.com/211277729/kiro4cpa-plugin",
