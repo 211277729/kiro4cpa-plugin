@@ -5,8 +5,10 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 )
 
 type AssistantResponseEvent struct {
@@ -168,33 +170,57 @@ var (
 	loggedEventTypes   = make(map[string]struct{})
 )
 
-// traceFrame logs every upstream frame this process receives. Upstream usage
+// traceFrame records every upstream frame this process receives. Upstream usage
 // frames have arrived under names the plugin did not model, and the only way to
 // settle which frame carries the counts is to look at the wire. Set
-// KIRO_TRACE_FRAMES=1 to enable; the payload is truncated so large answers stay
-// readable in a log.
+// KIRO_TRACE_FRAMES to a file path to enable; the payload is truncated so large
+// answers stay readable.
+//
+// The host redirects the global standard logger without including plugin output,
+// so tracing writes to its own file instead of log.Printf.
 func traceFrame(f Frame) {
-	if !traceFramesEnabled() {
+	path, enabled := traceFramesPath()
+	if !enabled {
 		return
 	}
 	payload := f.Payload
 	if len(payload) > 320 {
 		payload = payload[:320]
 	}
-	log.Printf("kiro4cpa: frame type=%q message=%q payload=%s",
-		f.EventType(), f.MessageType(), string(payload))
+	line := fmt.Sprintf("%s type=%q message=%q payload=%s\n",
+		time.Now().Format(time.RFC3339), f.EventType(), f.MessageType(), payload)
+	traceMu.Lock()
+	defer traceMu.Unlock()
+	file, errOpen := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
+	if errOpen != nil {
+		return
+	}
+	_, _ = file.WriteString(line)
+	_ = file.Close()
 }
 
-var traceFramesOnce struct {
-	sync.Once
-	enabled bool
-}
+var (
+	traceFramesOnce struct {
+		sync.Once
+		path    string
+		enabled bool
+	}
+	traceMu sync.Mutex
+)
 
-func traceFramesEnabled() bool {
+func traceFramesPath() (string, bool) {
 	traceFramesOnce.Do(func() {
-		traceFramesOnce.enabled = strings.TrimSpace(os.Getenv("KIRO_TRACE_FRAMES")) == "1"
+		value := strings.TrimSpace(os.Getenv("KIRO_TRACE_FRAMES"))
+		if value == "" || value == "0" {
+			return
+		}
+		if value == "1" {
+			value = filepath.Join(os.TempDir(), "kiro-frames.log")
+		}
+		traceFramesOnce.path = value
+		traceFramesOnce.enabled = true
 	})
-	return traceFramesOnce.enabled
+	return traceFramesOnce.path, traceFramesOnce.enabled
 }
 
 // tokenUsageFromUnknownFrame searches an unmodeled frame for a tokenUsage object
