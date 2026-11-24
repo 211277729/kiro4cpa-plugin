@@ -76,3 +76,31 @@ func TestUpdateFromYAMLRejectsInvalidPacing(t *testing.T) {
 		t.Fatalf("rejected config changed state: %+v", got)
 	}
 }
+
+func TestUsageMaxCacheReadShareDefaultsAndValidates(t *testing.T) {
+	// An omitted value falls back to the shipped ceiling rather than failing
+	// the whole usage block.
+	settings, err := (PluginConfig{CacheReadRatio: "0.10"}).Usage()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if settings.MaxCacheReadShare != 0.9 {
+		t.Fatalf("MaxCacheReadShare = %v, want the 0.9 default", settings.MaxCacheReadShare)
+	}
+
+	for _, value := range []string{"0", "0.5", "1"} {
+		settings, err := (PluginConfig{CacheReadRatio: "0.10", MaxCacheReadShare: value}).Usage()
+		if err != nil {
+			t.Fatalf("%q rejected: %v", value, err)
+		}
+		if settings.MaxCacheReadShare < 0 || settings.MaxCacheReadShare > 1 {
+			t.Fatalf("%q parsed as %v", value, settings.MaxCacheReadShare)
+		}
+	}
+
+	for _, value := range []string{"-0.1", "1.5", "most"} {
+		if _, err := (PluginConfig{CacheReadRatio: "0.10", MaxCacheReadShare: value}).Usage(); err == nil {
+			t.Fatalf("%q should be rejected", value)
+		}
+	}
+}

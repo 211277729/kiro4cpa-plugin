@@ -140,6 +140,16 @@ func (a usageAccounting) apply(in UsageInput) UsageResult {
 	if math.IsNaN(cached) || cached < 0 {
 		return estimate
 	}
+	// The service bills one blended number, so a cheap turn can imply "the whole
+	// prompt was cached". Claiming that leaves the caller paying the cache rate
+	// for everything while the operator still pays for the full prompt, so the
+	// configured share is a hard ceiling on what the derivation may attribute to
+	// the cache. 1 disables the ceiling, 0 disables the cache claim.
+	if maxShare := a.settings.MaxCacheReadShare; maxShare < 1 {
+		if ceiling := total * maxShare; cached > ceiling {
+			cached = ceiling
+		}
+	}
 	if cached > total {
 		cached = total
 	}

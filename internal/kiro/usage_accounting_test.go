@@ -274,3 +274,84 @@ func TestCreditRateResolution(t *testing.T) {
 		}
 	}
 }
+
+// A very cheap turn derives a cached share above the caller's whole prompt.
+// Uncapped that becomes a 100% cache hit, which bills the caller nothing for
+// input while the operator still pays the service for every token. The
+// configured ceiling keeps a floor under the fresh input.
+func TestAccountingMaxCacheReadShareCapsDerivedCache(t *testing.T) {
+	const in, out, ratio = 3.53e-5, 2.87e-4, 0.10
+	const total, output = 1000, 1
+	// Half of an all-cached prompt: the derivation wants "everything".
+	credits := in*total*ratio*0.5 + out*output
+
+	capped := testAccountingWithShare(t, defaultTestRates(), "0.10", "0.90")
+	got := capped.apply(UsageInput{
+		Model:           "claude-sonnet-5.5",
+		EstimatedInput:  total,
+		EstimatedOutput: output,
+		Credits:         credits,
+		SawCredits:      true,
+	})
+	if got.Source != "credit" {
+		t.Fatalf("expected a credit split, got %+v", got)
+	}
+	if got.CacheReadInputTokens != 900 || got.InputTokens != 100 {
+		t.Fatalf("cap not applied: %+v, want fresh=100 cached=900", got)
+	}
+
+	uncapped := testAccountingWithShare(t, defaultTestRates(), "0.10", "1")
+	got = uncapped.apply(UsageInput{
+		Model:           "claude-sonnet-5.5",
+		EstimatedInput:  total,
+		EstimatedOutput: output,
+		Credits:         credits,
+		SawCredits:      true,
+	})
+	if got.InputTokens != 0 || got.CacheReadInputTokens != total {
+		t.Fatalf("uncapped derivation should still claim the whole prompt: %+v", got)
+	}
+}
+
+// share 0 is the escape hatch for an operator who does not want the plugin to
+// claim cache reads at all: the report falls back to the plain estimate.
+func TestAccountingZeroMaxCacheReadShareReportsNoCache(t *testing.T) {
+	const in, out, ratio = 3.53e-5, 2.87e-4, 0.10
+	const total, output = 1000, 1
+	credits := in*total*ratio*0.5 + out*output
+	a := testAccountingWithShare(t, defaultTestRates(), "0.10", "0")
+	got := a.apply(UsageInput{
+		Model:           "claude-sonnet-5.5",
+		EstimatedInput:  total,
+		EstimatedOutput: output,
+		Credits:         credits,
+		SawCredits:      true,
+	})
+	if got.CacheReadInputTokens != 0 || got.Source != "estimate" {
+		t.Fatalf("expected no cache attribution, got %+v", got)
+	}
+	if got.InputTokens != total {
+		t.Fatalf("input should stay the estimate: %+v", got)
+	}
+}
+
+func defaultTestRates() map[string]config.RateSpec {
+	return map[string]config.RateSpec{
+		"claude-sonnet*": scalar("3.53e-5", "2.87e-4"),
+		"*":              scalar("4.24e-6", "4.24e-6"),
+	}
+}
+
+func testAccountingWithShare(t *testing.T, rates map[string]config.RateSpec, ratio, maxShare string) usageAccounting {
+	t.Helper()
+	settings, err := (config.PluginConfig{
+		UsageMode:         "credit",
+		CreditRates:       rates,
+		CacheReadRatio:    ratio,
+		MaxCacheReadShare: maxShare,
+	}).Usage()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return usageAccounting{settings: settings}
+}

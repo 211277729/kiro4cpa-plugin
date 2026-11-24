@@ -68,6 +68,8 @@ func getRegistration() registration {
 					Description: "Credits billed per token, per model pattern. Either a number (input and output priced the same) or {input, output}. Exact names win over wildcards, and \"*\" is the fallback. Measured defaults: sonnet {input: 3.53e-5, output: 2.87e-4}, opus {input: 5.13e-5, output: 4.48e-4}, haiku {input: 4.39e-6, output: 1.29e-5}"},
 				{Name: "cache_read_ratio", Type: pluginapi.ConfigFieldTypeString, Default: "0.10",
 					Description: "Fraction of the input rate a cached token is billed at. Measured: sonnet 25%, opus 10%, haiku 11%; 0.10 is the conservative default"},
+				{Name: "max_cache_read_share", Type: pluginapi.ConfigFieldTypeString, Default: "0.9",
+					Description: "Ceiling on the cached share of the caller's prompt reported when usage is derived from credit spend, e.g. 0.9. The service bills one blended number, so a cheap turn otherwise reads as a 100% cache hit and the caller pays nothing for input. 1 disables the ceiling; 0 disables cache attribution entirely"},
 			},
 		},
 		Capabilities: registrationCapability{

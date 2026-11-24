@@ -1,3 +1,3 @@
 package kiro
 
-var Version = "1.0.16"
+var Version = "1.0.17"

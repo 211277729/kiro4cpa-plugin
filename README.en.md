@@ -122,6 +122,19 @@ oauth-model-alias:
 
 Account model exclusions accept original IDs, configured CPA aliases and `*` wildcards. Selecting `claude-sonnet-4-5` in the official panel excludes its underlying `claude-sonnet-4.5` from that account before registration; other accounts remain eligible. Excluding an alias disables the underlying model and all its aliases for that account. Account alias definitions override provider definitions with the same alias. Global and account exclusions are additive; clearing an account rule restores models not globally excluded.
 
+## Usage accounting (credit → token)
+
+Kiro bills in credits and never reports per-request token counts, so the plugin converts the credit spend into tokens with `credit_rates` and splits out the cached share with `cache_read_ratio`. That split is what downstream relays and panels see.
+
+| Key | Default | Meaning |
+|---|---|---|
+| `usage_mode` | `credit` | `credit` converts credits and reports the cache split; `estimate` keeps the character heuristic; `off` reports the estimate with no cache attribution |
+| `credit_rates` | see registration | Credits per token for each model pattern, input and output priced separately |
+| `cache_read_ratio` | `0.10` | Fraction of the input rate a cached token is billed at (measured: sonnet ~25%, opus 10%, haiku 11%) |
+| `max_cache_read_share` | `0.9` | Ceiling on the cached share of the prompt |
+
+The last one is the operator's margin guard: a very cheap turn makes the conversion solve for "everything was cached", i.e. a 100% hit rate where the caller pays only the cache rate while you still pay credits for the whole prompt. The ceiling keeps `(1 - ceiling)` of the prompt billed as fresh input; `1` disables it and `0` disables cache attribution entirely.
+
 ## Quota
 
 The plugin implements CPA's QuotaProvider, so an account's Kiro quota can be queried through CPA's management API:

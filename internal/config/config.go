@@ -37,6 +37,13 @@ type PluginConfig struct {
 	// billed at. Upstream does not itemize cached tokens, so the plugin splits
 	// credit spend between fresh and cached input using this ratio.
 	CacheReadRatio string `yaml:"cache_read_ratio"`
+	// MaxCacheReadShare caps how much of the caller's prompt the plugin reports
+	// as cached when it derives the split from credit spend. A cheap turn
+	// implies "almost everything was cached", which without a cap becomes a
+	// 100% cache hit: the caller pays almost nothing while the operator still
+	// pays the service for the whole prompt. 1 leaves the derivation uncapped;
+	// 0 disables the cache claim entirely.
+	MaxCacheReadShare string `yaml:"max_cache_read_share"`
 }
 
 var defaults = PluginConfig{
@@ -58,6 +65,9 @@ var defaults = PluginConfig{
 		"claude-opus*":   {Input: "5.13e-5", Output: "4.48e-4"},
 	},
 	CacheReadRatio: "0.10",
+	// Nine cached tokens in ten is already a warm conversation; claiming the
+	// full prompt leaves no floor under the fresh input the service charged.
+	MaxCacheReadShare: "0.9",
 }
 
 // RateSpec is one credits-per-token entry. A bare YAML scalar sets Input and
@@ -166,6 +176,9 @@ func (c PluginConfig) withDefaults() PluginConfig {
 	if c.CacheReadRatio == "" {
 		c.CacheReadRatio = defaults.CacheReadRatio
 	}
+	if c.MaxCacheReadShare == "" {
+		c.MaxCacheReadShare = defaults.MaxCacheReadShare
+	}
 	return c
 }
 
@@ -188,6 +201,9 @@ func (c PluginConfig) withUsageDefaults() PluginConfig {
 	if c.CacheReadRatio == "" {
 		c.CacheReadRatio = defaults.CacheReadRatio
 	}
+	if c.MaxCacheReadShare == "" {
+		c.MaxCacheReadShare = defaults.MaxCacheReadShare
+	}
 	return c
 }
 
@@ -196,6 +212,9 @@ type UsageSettings struct {
 	Mode           string
 	CreditRates    []ModelCreditRate
 	CacheReadRatio float64
+	// MaxCacheReadShare bounds the cached share of the caller's prompt that the
+	// credit derivation may claim; 1 means uncapped, 0 means no cache reads.
+	MaxCacheReadShare float64
 }
 
 // ModelCreditRate is one credits-per-token entry; Pattern may end in "*".
@@ -247,10 +266,19 @@ func (c PluginConfig) Usage() (UsageSettings, error) {
 	if err != nil || ratio < 0 || ratio > 1 {
 		return UsageSettings{}, fmt.Errorf("cache_read_ratio must be between 0 and 1, got %q", c.CacheReadRatio)
 	}
+	maxShareRaw := strings.TrimSpace(c.MaxCacheReadShare)
+	if maxShareRaw == "" {
+		maxShareRaw = defaults.MaxCacheReadShare
+	}
+	maxShare, err := strconv.ParseFloat(maxShareRaw, 64)
+	if err != nil || maxShare < 0 || maxShare > 1 {
+		return UsageSettings{}, fmt.Errorf("max_cache_read_share must be between 0 and 1, got %q", c.MaxCacheReadShare)
+	}
 	return UsageSettings{
-		Mode:           mode,
-		CreditRates:    rates,
-		CacheReadRatio: ratio,
+		Mode:              mode,
+		CreditRates:       rates,
+		CacheReadRatio:    ratio,
+		MaxCacheReadShare: maxShare,
 	}, nil
 }
 
